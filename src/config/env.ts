@@ -16,6 +16,10 @@ const schema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().default(""),
   TELEGRAM_CHILD_ID: z.string().default(""),
   CHILD_NAME: z.string().default("Criança"),
+  /** Base da Bot API — aponte para o simulador local para testar sem Telegram. */
+  TELEGRAM_API_BASE: z.string().default(""),
+  /** Silêncio (ms) que fecha a janela de análise. Baixe para testar rápido. */
+  TELEGRAM_IDLE_MS: z.coerce.number().int().min(500).default(20_000),
 
   ANALYZER: z.enum(["mock", "oci"]).default("mock"),
   OCI_COMPARTMENT_ID: z.string().default(""),

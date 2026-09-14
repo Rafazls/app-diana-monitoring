@@ -69,6 +69,44 @@ de todas as conversas de exemplo.
 Erros previsíveis: `400` entrada inválida, `404` alerta inexistente,
 `503` fonte de alertas indisponível.
 
+## Testando a ingestão sem bot e sem conta
+
+A Bot API **não permite enviar mensagem "como" outra pessoa** — um bot só fala
+como ele mesmo. Para ver os dois lados de uma conversa no Telegram de verdade
+seriam necessárias duas contas num grupo com o bot.
+
+Para testar antes disso, o repositório traz um **simulador da Bot API**. Ele
+responde `getMe` e `getUpdates` exatamente como o Telegram, então o backend
+exercita o código real de ingestão — long polling, `offset`, janela por
+silêncio, mapeamento de autor — e só a origem das mensagens é falsa.
+
+**Terminal 1** — simulador:
+
+```bash
+node tools/telegram-sim.mjs
+```
+
+**Terminal 2** — backend apontado para ele:
+
+```bash
+INGESTION=telegram TELEGRAM_BOT_TOKEN=teste TELEGRAM_CHILD_ID=111 \
+TELEGRAM_API_BASE=http://localhost:8081 TELEGRAM_IDLE_MS=3000 \
+CHILD_NAME=Lucas npm start
+```
+
+No simulador, escolha quem fala:
+
+```
+> o: oi, joguei contigo ontem          # o contato
+> c: vlw kkkk                          # a criança
+> o: fica só entre a gente, tá?
+> /roteiro grooming                    # ou reproduza uma conversa inteira
+> /roteiros                            # grooming, chantagem, bullying, sofrimento, tranquila
+```
+
+Passados os 3 segundos de silêncio (`TELEGRAM_IDLE_MS`), o backend fecha a
+janela, analisa e o alerta aparece em `GET /alerts` e na tela do responsável.
+
 ## Ligando o Telegram de verdade
 
 1. Crie um bot com o [@BotFather](https://t.me/BotFather) e copie o token.
