@@ -9,9 +9,9 @@
   },
   "main": "dist/main.js",
   "scripts": {
-    "dev": "tsc -w -p tsconfig.json & sleep 3 && node --watch dist/main.js",
+    "dev": "tsc -w -p tsconfig.json & sleep 3 && node --env-file-if-exists=.env --watch dist/main.js",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/main.js",
+    "start": "node --env-file-if-exists=.env dist/main.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "check": "npm run typecheck && npm run test"

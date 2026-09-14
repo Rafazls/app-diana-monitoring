@@ -110,15 +110,30 @@ janela, analisa e o alerta aparece em `GET /alerts` e na tela do responsável.
 ## Ligando o Telegram de verdade
 
 1. Crie um bot com o [@BotFather](https://t.me/BotFather) e copie o token.
-2. Adicione o bot ao chat que será monitorado (com ciência e consentimento de
+2. **Desligue o modo privacidade** do bot (`/setprivacy` → `Disable` no
+   @BotFather). Sem isso, em grupos o bot só recebe mensagens dirigidas a ele e
+   a análise não vê a conversa.
+3. Adicione o bot ao grupo que será monitorado (com ciência e consentimento de
    quem participa dele).
-3. Descubra o id numérico da criança no Telegram e configure:
+4. Descubra o id numérico da criança e configure um `.env` na raiz:
 
 ```bash
+cp .env.example .env
+```
+
+```ini
 INGESTION=telegram
-TELEGRAM_BOT_TOKEN=123456:ABC...
+TELEGRAM_BOT_TOKEN=123456:ABC...      # ← segredo: nunca versione nem compartilhe
 TELEGRAM_CHILD_ID=987654321
 CHILD_NAME=Lucas
+```
+
+O `npm start` carrega o `.env` automaticamente (`--env-file-if-exists`), e o
+arquivo já está no `.gitignore`. Para descobrir os ids, mande uma mensagem no
+grupo com cada conta e consulte:
+
+```bash
+curl "https://api.telegram.org/bot<SEU_TOKEN>/getUpdates" | jq '.result[].message.from'
 ```
 
 **O que o bot enxerga:** a Bot API entrega ao bot apenas mensagens de chats em
