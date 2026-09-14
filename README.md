@@ -69,18 +69,71 @@ de todas as conversas de exemplo.
 Erros previsíveis: `400` entrada inválida, `404` alerta inexistente,
 `503` fonte de alertas indisponível.
 
+## Testando a ingestão sem bot e sem conta
+
+A Bot API **não permite enviar mensagem "como" outra pessoa** — um bot só fala
+como ele mesmo. Para ver os dois lados de uma conversa no Telegram de verdade
+seriam necessárias duas contas num grupo com o bot.
+
+Para testar antes disso, o repositório traz um **simulador da Bot API**. Ele
+responde `getMe` e `getUpdates` exatamente como o Telegram, então o backend
+exercita o código real de ingestão — long polling, `offset`, janela por
+silêncio, mapeamento de autor — e só a origem das mensagens é falsa.
+
+**Terminal 1** — simulador:
+
+```bash
+node tools/telegram-sim.mjs
+```
+
+**Terminal 2** — backend apontado para ele:
+
+```bash
+INGESTION=telegram TELEGRAM_BOT_TOKEN=teste TELEGRAM_CHILD_ID=111 \
+TELEGRAM_API_BASE=http://localhost:8081 TELEGRAM_IDLE_MS=3000 \
+CHILD_NAME=Lucas npm start
+```
+
+No simulador, escolha quem fala:
+
+```
+> o: oi, joguei contigo ontem          # o contato
+> c: vlw kkkk                          # a criança
+> o: fica só entre a gente, tá?
+> /roteiro grooming                    # ou reproduza uma conversa inteira
+> /roteiros                            # grooming, chantagem, bullying, sofrimento, tranquila
+```
+
+Passados os 3 segundos de silêncio (`TELEGRAM_IDLE_MS`), o backend fecha a
+janela, analisa e o alerta aparece em `GET /alerts` e na tela do responsável.
+
 ## Ligando o Telegram de verdade
 
 1. Crie um bot com o [@BotFather](https://t.me/BotFather) e copie o token.
-2. Adicione o bot ao chat que será monitorado (com ciência e consentimento de
+2. **Desligue o modo privacidade** do bot (`/setprivacy` → `Disable` no
+   @BotFather). Sem isso, em grupos o bot só recebe mensagens dirigidas a ele e
+   a análise não vê a conversa.
+3. Adicione o bot ao grupo que será monitorado (com ciência e consentimento de
    quem participa dele).
-3. Descubra o id numérico da criança no Telegram e configure:
+4. Descubra o id numérico da criança e configure um `.env` na raiz:
 
 ```bash
+cp .env.example .env
+```
+
+```ini
 INGESTION=telegram
-TELEGRAM_BOT_TOKEN=123456:ABC...
+TELEGRAM_BOT_TOKEN=123456:ABC...      # ← segredo: nunca versione nem compartilhe
 TELEGRAM_CHILD_ID=987654321
 CHILD_NAME=Lucas
+```
+
+O `npm start` carrega o `.env` automaticamente (`--env-file-if-exists`), e o
+arquivo já está no `.gitignore`. Para descobrir os ids, mande uma mensagem no
+grupo com cada conta e consulte:
+
+```bash
+curl "https://api.telegram.org/bot<SEU_TOKEN>/getUpdates" | jq '.result[].message.from'
 ```
 
 **O que o bot enxerga:** a Bot API entrega ao bot apenas mensagens de chats em

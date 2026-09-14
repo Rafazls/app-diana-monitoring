@@ -18,10 +18,10 @@ import type { Conversation, ConversationMessage } from "../contracts/index.js";
 import { logger } from "../logger.js";
 import type { ConversationSource } from "./types.js";
 
-const API = "https://api.telegram.org";
+const DEFAULT_API = "https://api.telegram.org";
 
 /** Silêncio que fecha a janela de análise de um chat. */
-const IDLE_MS = 20_000;
+const DEFAULT_IDLE_MS = 20_000;
 /** Teto de mensagens acumuladas antes de analisar de qualquer forma. */
 const MAX_BUFFER = 40;
 /** Janela de contexto: mensagens mais antigas que isso saem do buffer. */
@@ -66,17 +66,30 @@ export interface TelegramSourceConfig {
    */
   childTelegramId?: string;
   childName: string;
+  /**
+   * Base da Bot API. Trocável para apontar a um simulador local e exercitar
+   * este código inteiro — polling, janela, mapeamento de autor — sem depender
+   * do Telegram real (ver `tools/telegram-sim.mjs`).
+   */
+  apiBase?: string;
+  /** Silêncio que fecha a janela. Reduza para testar sem esperar 20s. */
+  idleMs?: number;
 }
 
 export class TelegramSource implements ConversationSource {
   readonly name = "telegram";
 
   private readonly buffers = new Map<number, Buffered>();
+  private readonly apiBase: string;
+  private readonly idleMs: number;
   private offset = 0;
   private running = false;
   private onConversation: ((conversation: Conversation) => Promise<void>) | null = null;
 
   constructor(private readonly config: TelegramSourceConfig) {
+    this.apiBase = config.apiBase ?? DEFAULT_API;
+    this.idleMs = config.idleMs ?? DEFAULT_IDLE_MS;
+
     if (!config.token) {
       throw new Error(
         "INGESTION=telegram exige TELEGRAM_BOT_TOKEN. " +
@@ -164,7 +177,7 @@ export class TelegramSource implements ConversationSource {
     buffer.messages = buffer.messages.filter((m) => Date.parse(m.timestamp) >= cutoff);
 
     if (buffer.timer) clearTimeout(buffer.timer);
-    buffer.timer = setTimeout(() => void this.flush(chatId), IDLE_MS);
+    buffer.timer = setTimeout(() => void this.flush(chatId), this.idleMs);
     this.buffers.set(chatId, buffer);
 
     if (buffer.messages.length >= MAX_BUFFER) void this.flush(chatId);
@@ -198,7 +211,7 @@ export class TelegramSource implements ConversationSource {
   }
 
   private async call<T>(method: string, body?: unknown): Promise<T> {
-    const response = await fetch(`${API}/bot${this.config.token}/${method}`, {
+    const response = await fetch(`${this.apiBase}/bot${this.config.token}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body ?? {}),
