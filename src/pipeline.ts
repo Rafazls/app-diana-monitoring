@@ -15,12 +15,31 @@ export interface PipelineStats {
   analyzed: number;
   alerted: number;
   discarded: number;
-  /** Total de mensagens analisadas — alimenta o gráfico do início. */
+  /** Total de mensagens analisadas. */
   messages: number;
+  /**
+   * Mensagens analisadas por dia (chave `YYYY-MM-DD`) — alimenta o gráfico de
+   * atividade. Contar por dia em vez de acumular num total é o que faz a série
+   * de 7 dias significar alguma coisa conforme o backend vai rodando.
+   */
+  messagesByDay: Record<string, number>;
+}
+
+/** Chave de dia local, no formato que o gráfico agrupa. */
+function dayKey(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
 }
 
 export class Pipeline {
-  private readonly stats: PipelineStats = { analyzed: 0, alerted: 0, discarded: 0, messages: 0 };
+  private readonly stats: PipelineStats = {
+    analyzed: 0,
+    alerted: 0,
+    discarded: 0,
+    messages: 0,
+    messagesByDay: {},
+  };
 
   constructor(
     private readonly analyzer: RiskAnalyzer,
@@ -28,7 +47,7 @@ export class Pipeline {
   ) {}
 
   getStats(): PipelineStats {
-    return { ...this.stats };
+    return { ...this.stats, messagesByDay: { ...this.stats.messagesByDay } };
   }
 
   /** Liga a fonte ao pipeline. Cada conversa madura passa por aqui. */
@@ -41,6 +60,14 @@ export class Pipeline {
 
     this.stats.analyzed += 1;
     this.stats.messages += conversation.messages.length;
+
+    // Cada mensagem conta no dia em que foi enviada, não no dia da análise:
+    // uma conversa de ontem analisada agora pertence a ontem no gráfico.
+    for (const message of conversation.messages) {
+      const at = new Date(message.timestamp);
+      const key = dayKey(Number.isNaN(at.getTime()) ? new Date() : at);
+      this.stats.messagesByDay[key] = (this.stats.messagesByDay[key] ?? 0) + 1;
+    }
 
     if (!result.assessment.requiresGuardianAttention) {
       this.stats.discarded += 1;

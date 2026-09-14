@@ -75,8 +75,11 @@ function projectList(records: AlertRecord[], store: AlertStore): AlertItem[] {
   return items;
 }
 
-/** Série dos últimos 7 dias a partir dos alertas conhecidos. */
-function buildActivity(records: AlertRecord[], totalMessages: number): ActivityPoint[] {
+/** Série dos últimos 7 dias: mensagens analisadas e alertas, por dia. */
+function buildActivity(
+  records: AlertRecord[],
+  messagesByDay: Record<string, number>,
+): ActivityPoint[] {
   const dayNames = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
   const today = new Date();
   const points: ActivityPoint[] = [];
@@ -90,10 +93,15 @@ function buildActivity(records: AlertRecord[], totalMessages: number): ActivityP
       return at >= day.getTime() && at < next.getTime();
     }).length;
 
-    // Sem histórico por dia ainda: distribui o total analisado na janela.
-    const mensagens = offset === 0 ? totalMessages : 0;
+    const month = String(day.getMonth() + 1).padStart(2, "0");
+    const dayOfMonth = String(day.getDate()).padStart(2, "0");
+    const key = `${day.getFullYear()}-${month}-${dayOfMonth}`;
 
-    points.push({ day: dayNames[day.getDay()] ?? "", mensagens, alertas: alertasDoDia });
+    points.push({
+      day: dayNames[day.getDay()] ?? "",
+      mensagens: messagesByDay[key] ?? 0,
+      alertas: alertasDoDia,
+    });
   }
 
   return points;
@@ -163,7 +171,7 @@ export function registerRoutes(app: FastifyInstance, deps: Deps): void {
 
     return reply.send({
       stats: buildStats(records, items, stats.analyzed),
-      activity: buildActivity(records, stats.messages),
+      activity: buildActivity(records, stats.messagesByDay),
       recentAlerts: items.slice(0, 5),
     });
   });
