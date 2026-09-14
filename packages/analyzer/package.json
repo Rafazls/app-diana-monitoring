@@ -1,0 +1,28 @@
+{
+  "name": "@diana/analyzer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Motor de análise de risco da DIANA: heurístico (mock) ou OCI Generative AI, atrás da mesma interface.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@diana/contracts": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.8.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}
