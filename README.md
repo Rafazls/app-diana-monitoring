@@ -1,137 +1,125 @@
-# DIANA · demo
+# DIANA · backend
 
-Demo end-to-end da DIANA em um único repositório: uma conversa monitorada vira
-uma **análise de risco**, que vira um **alerta estruturado** para o responsável.
-
-Roda inteira na sua máquina, sem credencial, sem nuvem, sem bot.
+Conecta ao Telegram, analisa as conversas e serve os alertas ao app do
+responsável ([`app-diana-guardian-web`](#o-front-end)).
 
 ```bash
 npm install
-npm run demo
+npm run build
+npm start
 ```
 
-Abra **http://localhost:5173**.
-
----
-
-## O que acontece quando você roda
+Sobe em **http://localhost:8080** com conversas de exemplo — sem bot, sem token,
+sem credencial. A saída mostra a triagem acontecendo:
 
 ```
-conversas de exemplo
-        │
-        ▼
-  @diana/analyzer            heurística determinística (ou OCI Generative AI)
-        │  AnalysisResult
-        ▼
-   @diana/core               decide o que merece alerta e grava em ./demo-state
-        │  alerts/<conversa>/<data>.json
-        ▼
-@diana/guardian-api  :8080   serve o alerta JÁ RESUMIDO (REST)
-        │
-        ▼
-@diana/guardian-web  :5173   painel do responsável
-```
-
-O `npm run demo` faz os três passos: analisa as conversas, sobe a API e abre o
-painel. A saída do primeiro passo mostra a triagem acontecendo:
-
-```
-🚨 Lucas  ↔ Bruno_GamerPro      score  98/100 · critical · 4 sinal(is)
-🚨 Pedro  ↔ DaniOnline          score  93/100 · critical · 3 sinal(is)
-🚨 Marina ↔ Sofia               score  52/100 · high     · 2 sinal(is)
-🚨 Marina ↔ Colega da escola    score  31/100 · medium   · 2 sinal(is)
-✅ Lucas  ↔ Tia Cláudia         score   0/100 · none     · 0 sinal(is)
+🚨 Alerta para Lucas: critical (score 98, 4 sinais).
+🚨 Alerta para Pedro: critical (score 93, 3 sinais).
+🚨 Alerta para Marina: high (score 52, 2 sinais).
+🚨 Alerta para Marina: medium (score 31, 2 sinais).
+Conversa conv-benign-01 analisada e descartada (score 0, sem risco relevante).
 ```
 
 A última linha é de propósito: **um sistema que alerta sobre tudo é tão inútil
-quanto um que não alerta sobre nada.** A conversa inofensiva é analisada e
-descartada.
+quanto um que não alerta sobre nada.**
+
+## O caminho de uma conversa
+
+```
+Telegram (ou fixtures)
+        │  Conversation
+        ▼
+    analyzer            heurística determinística (ou OCI Generative AI)
+        │  AnalysisResult  ← já sem texto e sem identidade
+        ▼
+   pipeline             decide o que merece a atenção do responsável
+        │  AlertRecord
+        ▼
+  API HTTP :8080        projeta para a forma exata que a tela consome
+```
 
 ## A regra que organiza o projeto (RF-16)
 
 > O responsável recebe a **análise do risco** — nunca a conversa do filho.
 
-Isso não é um detalhe de implementação, é o que torna o produto aceitável para
-uma família. Por isso a garantia aparece em três camadas independentes:
+Três camadas independentes garantem isso:
 
-1. O `AnalysisResult` é **identity-free**: não carrega texto de mensagem, nem o
-   nome da criança, nem o do contato — só sinais, pesos e referências opacas
-   (`MSG-003`) que permitem auditoria sem exposição.
-2. A API projeta a resposta por **allowlist** (cada campo é escolhido a dedo) e
-   ainda roda uma **asserção defensiva** que aborta a serialização se um campo
-   de conteúdo bruto aparecer por deriva de contrato.
-3. O nome da criança é resolvido à parte, de um índice separado — quem tem
-   direito de ver identidade resolve na hora de exibir, não no payload.
+1. O `AnalysisResult` é **identity-free**: nada de texto de mensagem, nome da
+   criança ou do contato — só sinais, pesos e referências opacas (`TG-123-45`)
+   que permitem auditoria sem exposição.
+2. A projeção para a tela usa **allowlist** — cada campo entregue é escolhido a
+   dedo, então um campo novo no contrato não vaza por descuido.
+3. Antes de serializar, uma **asserção defensiva** varre o payload atrás de
+   chaves de conteúdo bruto e aborta se encontrar.
 
-Há teste automatizado para isso: o resultado é serializado e comparado contra o
-texto original de cada mensagem.
-
-## Pacotes
-
-| Pacote | Papel |
-|---|---|
-| `@diana/contracts` | A linguagem comum: `Conversation` → `AnalysisResult` → `AlertRecord`, os tipos de visão e o schema zod. Um único lugar define as formas. |
-| `@diana/analyzer` | Decide o risco. `MockRiskAnalyzer` (padrão) ou `OciRiskAnalyzer` (seam pronto), atrás da mesma interface. |
-| `@diana/core` | O núcleo: conversas → análise → decisão → alertas em disco. |
-| `@diana/guardian-api` | API REST do responsável. Serve o alerta resumido. |
-| `@diana/guardian-web` | Painel do responsável (React + Vite). |
-
-O front importa os **mesmos tipos** que a API usa para montar a resposta — se o
-contrato mudar, o `typecheck` quebra antes da tela.
+Há teste automatizado: cada resposta da API é comparada contra o texto original
+de todas as conversas de exemplo.
 
 ## API
 
-| Rota | O que faz |
+| Rota | O que devolve |
 |---|---|
-| `GET /health` | Readiness: status, fonte ativa, uptime. |
-| `GET /alerts` | Lista resumida. Filtros `priority`, `category`, `limit`, `cursor`. |
-| `GET /alerts/:id` | Detalhe já resumido de um alerta. |
+| `GET /health` | Status, fonte de ingestão, motor de análise e contadores. |
+| `GET /dashboard` | `stats`, `activity` (7 dias) e `recentAlerts` — a tela de início. |
+| `GET /alerts` | Lista de alertas (`id`, `title`, `child`, `time`, `priority`, `read`, `category`). |
+| `GET /alerts/:id` | `{ analysis, childName, detectedTime }` — o detalhe. Marca como lido. |
 | `POST /alerts/:id/feedback` | `useful` · `false_positive` · `not_sure` (+ nota opcional). |
 | `GET` · `PUT /settings` | Preferências do responsável. |
 
-Erros são previsíveis: `400` entrada inválida, `404` alerta inexistente,
+Erros previsíveis: `400` entrada inválida, `404` alerta inexistente,
 `503` fonte de alertas indisponível.
+
+## Ligando o Telegram de verdade
+
+1. Crie um bot com o [@BotFather](https://t.me/BotFather) e copie o token.
+2. Adicione o bot ao chat que será monitorado (com ciência e consentimento de
+   quem participa dele).
+3. Descubra o id numérico da criança no Telegram e configure:
+
+```bash
+INGESTION=telegram
+TELEGRAM_BOT_TOKEN=123456:ABC...
+TELEGRAM_CHILD_ID=987654321
+CHILD_NAME=Lucas
+```
+
+**O que o bot enxerga:** a Bot API entrega ao bot apenas mensagens de chats em
+que ele foi adicionado — e, em grupos, apenas as dirigidas a ele, a menos que o
+dono do bot desligue o modo privacidade. Não existe, e este código não tenta,
+leitura de conversas alheias. Monitorar a comunicação de uma criança é uma
+decisão da família, e deve ser feita com transparência com ela.
+
+**Janela de análise:** mensagens são acumuladas por chat e analisadas quando a
+conversa "amadurece" (20s de silêncio ou 40 mensagens), com contexto das últimas
+6 horas — analisar a cada tecla digitada seria caro e pioraria a precisão.
 
 ## Comandos
 
 ```bash
-npm run demo    # analisa, sobe API + painel (o caminho feliz)
-npm run seed    # só reprocessa as conversas e regrava os alertas
-npm run check   # typecheck + testes de todos os pacotes
-npm run build   # compila tudo, inclusive o front
-npm run clean   # apaga dist/ e o estado da demo
+npm start       # sobe a API (build primeiro)
+npm run build   # compila
+npm run check   # typecheck + testes
+npm test        # só os testes
 ```
 
-## Trocando o mock pelo real
+## Limites honestos
 
-Tudo é mock **por padrão**; nada além disso é necessário para a demo. Os encaixes
-para o mundo real já existem — ver `.env.example`:
-
-| Quero… | Como |
-|---|---|
-| Análise por LLM na OCI | `ANALYZER=oci` + `OCI_COMPARTMENT_ID`, `OCI_MODEL_ID`, `OCI_REGION` |
-| Ler alertas do Object Storage | `ALERTS_SOURCE=oci` + `OCI_OS_*` |
-| Exigir chave na API | `GUARDIAN_API_KEY=algumacoisa` (header `x-api-key`) |
-
-Escolher um backend ainda não implementado **falha no boot**, com a instrução do
-que fazer — nunca silenciosamente, nem com um resultado inventado.
-
-## Limites honestos desta demo
-
-- **`ANALYZER=oci` e `ALERTS_SOURCE=oci` não estão implementados.** Existem como
-  interface e falham explicitamente se selecionados.
+- **`ANALYZER=oci` não está implementado.** Existe como interface e falha no
+  boot se escolhido — nunca silenciosamente, nem com resultado inventado.
 - **A heurística é um baseline, não um classificador.** Casa expressões
-  conhecidas; erra em ironia, gíria e contexto. Por isso todo alerta mostra os
-  sinais que o justificaram — a decisão final é de um humano.
-- **Não há autenticação.** Decisão consciente do MVP: a API é aberta (ou com uma
-  chave simples). Não há identidade nem autorização por responsável.
-- **O contato não é exibido no painel**, porque o payload de análise é
-  identity-free. Mostrá-lo exige estendê-lo do mesmo jeito que o nome da criança.
-- **O índice de nomes é lido no boot da API.** Rodou o `seed` de novo? Reinicie a
-  API para ver os nomes atualizados.
+  conhecidas; erra em ironia, gíria e contexto. Por isso todo alerta carrega os
+  sinais que o justificaram: a decisão final é de um humano.
+- **Não há autenticação.** A chave opcional (`x-api-key`) é um freio de
+  demonstração: sem identidade, sem autorização por responsável.
+- **`STORE=memory` perde os alertas no reinício.** Use `STORE=file` para
+  persistir.
 
-## Ajuda a quem precisa agora
+## O front-end
 
-Se você chegou aqui por um caso real, e não pelo código: **Disque 100**
-(violência contra crianças e adolescentes) e **CVV 188** (apoio emocional) são
-gratuitos e funcionam 24h no Brasil.
+A tela do responsável vive em um repositório separado e consome esta API.
+Configure lá a URL deste backend (padrão `http://localhost:8080`).
+
+## Se você chegou aqui por um caso real
+
+**Disque 100** (violência contra crianças e adolescentes) e **CVV 188** (apoio
+emocional) são gratuitos e funcionam 24h no Brasil.

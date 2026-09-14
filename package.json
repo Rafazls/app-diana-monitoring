@@ -1,27 +1,29 @@
 {
-  "name": "diana-demo",
+  "name": "app-diana-monitoring",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "DIANA — demo end-to-end: conversa monitorada -> análise de risco -> alerta estruturado ao responsável.",
+  "description": "DIANA — backend: conecta ao Telegram, analisa as conversas e serve os alertas ao app do responsável.",
   "engines": {
     "node": ">=22"
   },
-  "workspaces": [
-    "packages/*"
-  ],
+  "main": "dist/main.js",
   "scripts": {
-    "build:libs": "npm run build -w @diana/contracts -w @diana/analyzer -w @diana/core -w @diana/guardian-api",
-    "build": "npm run build:libs && npm run build -w @diana/guardian-web",
-    "seed": "STATE_DIR=\"$PWD/demo-state\" npm run seed -w @diana/core",
-    "demo": "npm run build:libs && npm run seed && STATE_DIR=\"$PWD/demo-state\" ALERTS_SOURCE=file concurrently -n api,web -c cyan,magenta \"npm run start -w @diana/guardian-api\" \"npm run dev -w @diana/guardian-web\"",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
-    "check": "npm run typecheck && npm run test",
-    "clean": "rm -rf packages/*/dist demo-state"
+    "dev": "tsc -w -p tsconfig.json & sleep 3 && node --watch dist/main.js",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run test"
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "fastify": "^4.28.1",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0",
-    "typescript": "^5.6.3"
+    "@types/node": "^22.8.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
   }
 }
