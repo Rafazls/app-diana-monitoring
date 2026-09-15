@@ -59,6 +59,52 @@ você vai precisar dele já no próximo passo.
 > **OCID** é o identificador único de qualquer recurso na OCI. Você vai copiar
 > vários ao longo deste guia; vale manter um bloco de notas aberto.
 
+## ⚠️ Antes de começar: verifique o tipo da sua conta
+
+**Isso decide metade do guia.** Confira em ☰ → **Billing & Cost Management** →
+**Payment Method**.
+
+| Serviço deste projeto | Free Tier / Promo | Pay As You Go |
+|---|---|---|
+| Compartimento | ✅ | ✅ |
+| **Autonomous Database** | ✅ **Always Free** | ✅ |
+| Container Instance | ✅ (dentro dos limites) | ✅ |
+| **Generative AI** | ❌ **não incluído** | ✅ |
+
+A Generative AI **não faz parte do Always Free**. Em conta *Free Tier* ou
+*Promo*, mesmo com créditos disponíveis, o limite de requisições da tenancy é
+baixo o bastante para o serviço ficar inutilizável na prática — e o erro que
+aparece é `429: request is throttled for tenant`, que não menciona nada disso.
+
+Contas trial também **não conseguem abrir pedido de aumento de limite**, que
+seria a solução normal.
+
+### Seus caminhos
+
+**a) Seguir sem a nuvem, por enquanto** — recomendado para destravar agora
+
+Use `ANALYZER=mock` (heurística local, já implementada) e faça os passos 1, 4 e
+5 deste guia. O Autonomous Database é Always Free, então batches, persistência,
+ingestão do Telegram e a tela do responsável funcionam por completo. Só a
+análise por LLM fica de fora. Quando a conta virar paga, é trocar uma variável.
+
+**b) Fazer upgrade para Pay As You Go**
+
+Destrava a Generative AI. Os créditos promocionais costumam ser consumidos
+antes da cobrança começar. Vale conferir o preço do modelo antes, e criar um
+**Budget** com alerta (seção 7).
+
+**c) Rodar o modelo localmente**
+
+Não depende de conta paga nem de nuvem: um modelo pequeno roda na própria
+máquina, e a conversa nunca sai dela. Foi implementado e revertido no commit
+`2d9029e` — se fizer sentido retomar, é reaplicá-lo.
+
+> Os passos 1, 4, 5, 6 e 7 valem para qualquer um dos caminhos. Apenas o
+> passo 2 (e o `ANALYZER=oci` do passo 5) exigem conta paga.
+
+---
+
 ## 2. Generative AI — passo a passo detalhado
 
 Esta é a parte onde mais gente trava, e quase sempre pelo mesmo motivo:
@@ -198,7 +244,39 @@ Formato: {"signals":[{"type":"secrecy_request|image_request","messageIds":["..."
 | `NotAuthorizedOrNotFound` | A política do 2.4 não existe, está no compartimento errado, ou o nome do grupo está errado |
 | O modelo não aparece na lista | Você não está em São Paulo — confira a região |
 | `Compartment not found` | O seletor de compartimento está apontando para outro lugar |
+| `429 ... throttled for tenant` | Limite de requisições da tenancy. Veja abaixo — **não é erro de permissão** |
 | Erro de cota ou billing | Conta trial sem créditos válidos, ou créditos expirados |
+
+#### Se aparecer `429: request is throttled for tenant`
+
+Esse erro é, de certa forma, uma boa notícia: a requisição **foi autorizada** e
+chegou ao serviço. Região e política estão corretas — o que faltou foi cota.
+
+A Generative AI limita a taxa de requisições **por tenancy**, e contas novas
+costumam vir com um limite baixo.
+
+**O que fazer, em ordem:**
+
+1. **Espere um minuto e tente de novo.** Se o limite for por janela de tempo,
+   pode passar sozinho — é o teste mais barato.
+2. **Confira o tipo da conta.** ☰ → **Billing & Cost Management** →
+   **Payment Method**. Se aparecer *Free Tier* / *Trial*, a Generative AI pode
+   estar limitada até o upgrade para pago. Ter créditos não é o mesmo que ter
+   conta paga.
+3. **Peça aumento de limite.** ☰ → **Governance & Administration** →
+   **Limits, Quotas and Usage**:
+   - **Service**: Generative AI
+   - **Scope**: Brazil East (São Paulo)
+   - Localize o limite de requisições e clique em **Request a service limit increase**
+   - Descreva o uso: análise de texto por batch, com volume modesto
+
+   > Contas trial normalmente **não podem** abrir pedido de aumento. Nesse caso,
+   > o upgrade para pago é o caminho.
+
+**Enquanto isso, o projeto não fica parado.** O backend já lida com 429:
+repete a chamada com espaçamento crescente (`OCI_MAX_RETRIES`) e, se ainda
+assim não passar, analisa pela heurística local — nenhuma conversa deixa de
+ser avaliada. Para desenvolver sem depender da nuvem, use `ANALYZER=mock`.
 
 ### 2.6 Anotar o identificador do modelo
 

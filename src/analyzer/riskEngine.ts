@@ -241,7 +241,16 @@ export function consolidate(input: ConsolidateInput): AnalysisResult {
     // Repetição pesa, mas com retorno decrescente: a 1ª ocorrência vale cheio.
     return total + weight * (1 + Math.min(signal.messageIds.length - 1, 2) * 0.4);
   }, 0);
-  const escalationBonus = features.conversationEscalation >= 0.5 ? 8 : 0;
+  /**
+   * Escalada é um MODIFICADOR do risco já detectado, não um risco em si.
+   *
+   * O indicador vem da extração léxica, que roda independente do motor de
+   * análise. Sem essa condição, uma conversa em que o modelo não encontrou
+   * nada ainda receberia pontuação — e a tela mostraria "nenhum padrão
+   * identificado" ao lado de um score diferente de zero.
+   */
+  const escalationBonus =
+    signals.length > 0 && features.conversationEscalation >= 0.5 ? 8 : 0;
   const score = Math.round(Math.min(100, rawScore + escalationBonus));
 
   const hasSignal = (type: string) => signals.some((s) => s.type === type);

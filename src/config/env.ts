@@ -31,7 +31,13 @@ const schema = z.object({
   CONTEXT_BATCHES: z.coerce.number().int().min(1).max(20).default(3),
 
   // --- análise ---
-  ANALYZER: z.enum(["mock", "oci"]).default("mock"),
+  ANALYZER: z.enum(["mock", "server", "oci"]).default("mock"),
+  MODEL_SERVER_URL: z.string().default(""),
+  MODEL_SERVER_MODEL: z.string().default(""),
+  MODEL_SERVER_API_KEY: z.string().default(""),
+  MODEL_SERVER_TIMEOUT_MS: z.coerce.number().int().min(1000).default(120_000),
+  MODEL_SERVER_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(3),
+  MODEL_SERVER_JSON_MODE: z.string().default("true"),
   OCI_COMPARTMENT_ID: z.string().default(""),
   OCI_MODEL_ID: z.string().default(""),
   OCI_REGION: z.string().default(""),
@@ -42,6 +48,7 @@ const schema = z.object({
   OCI_PRIVATE_KEY: z.string().default(""),
   OCI_PASSPHRASE: z.string().default(""),
   OCI_TIMEOUT_MS: z.coerce.number().int().min(1000).default(30_000),
+  OCI_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(3),
 
   // --- persistência ---
   STORE: z.enum(["memory", "file", "oracle"]).default("memory"),
@@ -60,7 +67,7 @@ export interface AppConfig {
   corsOrigins: string[];
   apiKey: string;
   ingestion: "fixtures" | "telegram";
-  analyzer: "mock" | "oci";
+  analyzer: "mock" | "server" | "oci";
   store: "memory" | "file" | "oracle";
   childName: string;
   batchIntervalMs: number;
@@ -88,6 +95,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   // Falhar cedo é melhor do que subir um bot que nunca recebe nada.
   if (d.INGESTION === "telegram" && !d.TELEGRAM_BOT_TOKEN) {
     throw new Error("INGESTION=telegram exige TELEGRAM_BOT_TOKEN.");
+  }
+
+  if (d.ANALYZER === "server") {
+    const faltando = (["MODEL_SERVER_URL", "MODEL_SERVER_MODEL"] as const).filter((k) => !d[k]);
+    if (faltando.length > 0) {
+      throw new Error(`ANALYZER=server exige: ${faltando.join(", ")}.`);
+    }
   }
 
   if (d.ANALYZER === "oci") {

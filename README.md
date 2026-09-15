@@ -146,6 +146,12 @@ decisão da família, e deve ser feita com transparência com ela.
 conversa "amadurece" (20s de silêncio ou 40 mensagens), com contexto das últimas
 6 horas — analisar a cada tecla digitada seria caro e pioraria a precisão.
 
+## Rodar o modelo em infraestrutura própria
+
+Escolher um modelo, hospedar numa VM (inclusive no Always Free da Oracle) e
+conectar à aplicação: [`docs/modelo-proprio.md`](docs/modelo-proprio.md).
+Também cobre o caminho de treinamento.
+
 ## Provisionar na Oracle
 
 O passo a passo para criar os serviços na região de São Paulo — compartimento,
