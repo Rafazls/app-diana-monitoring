@@ -146,6 +146,12 @@ decisão da família, e deve ser feita com transparência com ela.
 conversa "amadurece" (20s de silêncio ou 40 mensagens), com contexto das últimas
 6 horas — analisar a cada tecla digitada seria caro e pioraria a precisão.
 
+## Provisionar na Oracle
+
+O passo a passo para criar os serviços na região de São Paulo — compartimento,
+Generative AI, chaves, Autonomous Database e Container Instance — está em
+[`docs/provisionamento-oci.md`](docs/provisionamento-oci.md).
+
 ## Comandos
 
 ```bash
