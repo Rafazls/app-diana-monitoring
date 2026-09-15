@@ -3,22 +3,40 @@ import { MockRiskAnalyzer } from "../src/analyzer/mockAnalyzer.js";
 import { loadConfig } from "../src/config/env.js";
 import { createServer } from "../src/http/server.js";
 import { demoConversations } from "../src/ingestion/fixtures.js";
-import { Pipeline } from "../src/pipeline.js";
+import { MemoryBatchStore } from "../src/batch/MemoryBatchStore.js";
+import { BatchScheduler } from "../src/batch/scheduler.js";
 import { MemoryAlertStore } from "../src/store/AlertStore.js";
 import { FeedbackStore, SettingsStore } from "../src/store/settings.js";
 
 async function buildApp(env: NodeJS.ProcessEnv = {}) {
   const analyzer = new MockRiskAnalyzer({ now: () => new Date("2026-09-14T12:00:00.000Z") });
   const alerts = new MemoryAlertStore();
-  const pipeline = new Pipeline(analyzer, alerts);
+  const scheduler = new BatchScheduler({
+    analyzer,
+    alerts,
+    batches: new MemoryBatchStore(),
+    intervalMs: 60_000,
+    contextBatches: 3,
+  });
 
-  for (const conversation of demoConversations) await pipeline.process(conversation);
+  // Alimenta o scheduler como a fonte faria e fecha o batch na mão.
+  for (const conversation of demoConversations) {
+    for (const message of conversation.messages) {
+      scheduler.accept({
+        conversationId: conversation.id,
+        childName: conversation.childName,
+        contactName: conversation.contactName,
+        message,
+      });
+    }
+  }
+  await scheduler.tick();
 
   const app = createServer(loadConfig({ LOG_LEVEL: "error", ...env }), {
     alerts,
     feedback: new FeedbackStore(),
     settings: new SettingsStore(),
-    pipeline,
+    scheduler,
     ingestion: "fixtures",
     analyzer: analyzer.name,
   });

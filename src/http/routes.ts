@@ -9,7 +9,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AlertRecord } from "../contracts/index.js";
 import { logger } from "../logger.js";
-import type { Pipeline } from "../pipeline.js";
+import type { BatchScheduler } from "../batch/scheduler.js";
 import type { AlertStore } from "../store/AlertStore.js";
 import type { FeedbackStore, SettingsStore } from "../store/settings.js";
 import { decodeAlertId } from "../view/alertId.js";
@@ -20,7 +20,7 @@ export interface Deps {
   alerts: AlertStore;
   feedback: FeedbackStore;
   settings: SettingsStore;
-  pipeline: Pipeline;
+  scheduler: BatchScheduler;
   ingestion: string;
   analyzer: string;
 }
@@ -145,7 +145,7 @@ function buildStats(records: AlertRecord[], items: AlertItem[], analyzed: number
 
 export function registerRoutes(app: FastifyInstance, deps: Deps): void {
   app.get("/health", async () => {
-    const stats = deps.pipeline.getStats();
+    const stats = deps.scheduler.getStats();
     return {
       status: "ok",
       ingestion: deps.ingestion,
@@ -167,7 +167,7 @@ export function registerRoutes(app: FastifyInstance, deps: Deps): void {
     }
 
     const items = projectList(records, deps.alerts);
-    const stats = deps.pipeline.getStats();
+    const stats = deps.scheduler.getStats();
 
     return reply.send({
       stats: buildStats(records, items, stats.analyzed),

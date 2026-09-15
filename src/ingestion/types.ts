@@ -1,22 +1,18 @@
 /**
- * Fronteira de ingestão: de onde vêm as conversas a analisar.
+ * Fronteira de ingestão: de onde vêm as mensagens.
  *
- * O pipeline não sabe se a mensagem veio do Telegram ou de um arquivo de
- * exemplo — ele só recebe `Conversation`. É o que permite desenvolver e
- * demonstrar sem bot, e ligar o bot depois sem tocar na análise.
+ * A fonte apenas ENTREGA mensagens, uma a uma, assim que chegam. Quem decide
+ * como agrupá-las em batches e quando analisar é o scheduler — assim a regra
+ * de janela vale igual para o Telegram e para as fixtures, e mudar a cadência
+ * não exige tocar em nenhuma fonte.
  */
-import type { Conversation } from "../contracts/index.js";
+import type { IncomingMessage } from "../batch/scheduler.js";
+
+export type { IncomingMessage };
 
 export interface ConversationSource {
-  /** Nome legível da fonte (aparece no /health). */
   readonly name: string;
-
-  /**
-   * Começa a produzir conversas. Cada vez que uma conversa tem novidade
-   * suficiente para valer uma análise, `onConversation` é chamado com ela.
-   */
-  start(onConversation: (conversation: Conversation) => Promise<void>): Promise<void>;
-
-  /** Encerra a fonte (parar o polling, fechar conexões). */
+  /** Começa a produzir. Cada mensagem nova vai para `onMessage`. */
+  start(onMessage: (message: IncomingMessage) => void): Promise<void>;
   stop(): Promise<void>;
 }

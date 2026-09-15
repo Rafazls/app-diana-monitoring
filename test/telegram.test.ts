@@ -1,7 +1,7 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Conversation } from "../src/contracts/index.js";
+import type { IncomingMessage } from "../src/batch/scheduler.js";
 import { TelegramSource } from "../src/ingestion/TelegramSource.js";
 
 /**
@@ -78,24 +78,27 @@ afterEach(async () => {
   await fake.close();
 });
 
-/** Sobe a fonte e espera a primeira conversa fechar a janela. */
-async function collectFirst(apiBase: string, idleMs = 150): Promise<Conversation> {
-  return new Promise<Conversation>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("nenhuma conversa foi entregue")), 5000);
+/**
+ * Sobe a fonte e coleta as mensagens entregues até o fluxo cessar.
+ * A fonte não agrupa mais — quem agrupa é o scheduler — então o teste junta.
+ */
+async function collect(apiBase: string, esperadas: number, childId?: number): Promise<IncomingMessage[]> {
+  const recebidas: IncomingMessage[] = [];
 
-    source = new TelegramSource({
-      token: "teste",
-      childTelegramId: String(CHILD_ID),
-      childName: "Lucas",
-      apiBase,
-      idleMs,
-    });
-
-    void source.start(async (conversation) => {
-      clearTimeout(timer);
-      resolve(conversation);
-    });
+  source = new TelegramSource({
+    token: "teste",
+    ...(childId !== undefined ? { childTelegramId: String(childId) } : {}),
+    childName: "Lucas",
+    apiBase,
   });
+
+  await source.start((m) => recebidas.push(m));
+
+  const limite = Date.now() + 5000;
+  while (recebidas.length < esperadas && Date.now() < limite) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return recebidas;
 }
 
 describe("TelegramSource", () => {
@@ -104,30 +107,30 @@ describe("TelegramSource", () => {
     fake.say(CHILD_ID, "Lucas", "oi!");
     fake.say(OTHER_ID, "Bruno", "nosso segredo");
 
-    const conversation = await collectFirst(await fake.listen());
+    const recebidas = await collect(await fake.listen(), 3, CHILD_ID);
 
-    expect(conversation.messages.map((m) => m.author)).toEqual(["other", "child", "other"]);
-    expect(conversation.childName).toBe("Lucas");
+    expect(recebidas.map((m) => m.message.author)).toEqual(["other", "child", "other"]);
+    expect(recebidas[0]?.childName).toBe("Lucas");
     // O contato é o primeiro remetente que não é a criança.
-    expect(conversation.contactName).toBe("Bruno");
+    expect(recebidas[0]?.contactName).toBe("Bruno");
   });
 
-  it("agrupa as mensagens do chat numa conversa só, na ordem", async () => {
+  it("entrega as mensagens do chat na ordem, com o mesmo id de conversa", async () => {
     fake.say(OTHER_ID, "Bruno", "primeira");
     fake.say(CHILD_ID, "Lucas", "segunda");
     fake.say(OTHER_ID, "Bruno", "terceira");
 
-    const conversation = await collectFirst(await fake.listen());
+    const recebidas = await collect(await fake.listen(), 3, CHILD_ID);
 
-    expect(conversation.messages.map((m) => m.text)).toEqual(["primeira", "segunda", "terceira"]);
-    expect(conversation.id).toBe("tg--100");
+    expect(recebidas.map((m) => m.message.text)).toEqual(["primeira", "segunda", "terceira"]);
+    expect(new Set(recebidas.map((m) => m.conversationId))).toEqual(new Set(["tg--100"]));
   });
 
   it("avança o offset para não reprocessar o que já leu", async () => {
     fake.say(OTHER_ID, "Bruno", "oi");
     fake.say(CHILD_ID, "Lucas", "oi!");
 
-    await collectFirst(await fake.listen());
+    await collect(await fake.listen(), 2, CHILD_ID);
     await new Promise((r) => setTimeout(r, 120));
 
     // O primeiro pedido começa em 0; depois de ler 2 updates, avança.
@@ -137,25 +140,12 @@ describe("TelegramSource", () => {
 
   it("sem TELEGRAM_CHILD_ID, ninguém é marcado como criança", async () => {
     fake.say(CHILD_ID, "Lucas", "oi");
-    const apiBase = await fake.listen();
 
-    const conversation = await new Promise<Conversation>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("sem conversa")), 5000);
-      source = new TelegramSource({
-        token: "teste",
-        childName: "Lucas",
-        apiBase,
-        idleMs: 150,
-      });
-      void source.start(async (c) => {
-        clearTimeout(timer);
-        resolve(c);
-      });
-    });
+    const recebidas = await collect(await fake.listen(), 1);
 
     // Documenta a consequência: padrões que só contam vindos do interlocutor
     // passam a contar para tudo, e a análise perde sentido.
-    expect(conversation.messages[0]?.author).toBe("other");
+    expect(recebidas[0]?.message.author).toBe("other");
   });
 
   it("exige token", () => {
