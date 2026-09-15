@@ -158,6 +158,10 @@ O passo a passo para criar os serviços na região de São Paulo — compartimen
 Generative AI, chaves, Autonomous Database e Container Instance — está em
 [`docs/provisionamento-oci.md`](docs/provisionamento-oci.md).
 
+Para provisionar o mesmo conjunto pelo terminal — compartimento, VCN, sub-rede,
+NSG, instância e Autonomous Database, com script de criação e de teardown —
+veja [`docs/infraestrutura-via-cli.md`](docs/infraestrutura-via-cli.md).
+
 ## Comandos
 
 ```bash
