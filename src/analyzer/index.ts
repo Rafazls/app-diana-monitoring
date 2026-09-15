@@ -5,6 +5,7 @@
  * e mantém a heurística como reserva — se a nuvem cair, a conversa ainda é
  * analisada. Trocar de motor é mudar uma variável.
  */
+import { EdgeRiskAnalyzer } from "./edgeAnalyzer.js";
 import { MockRiskAnalyzer } from "./mockAnalyzer.js";
 import { OciRiskAnalyzer, type ModelFamily } from "./ociAnalyzer.js";
 import type { RiskAnalyzer } from "./types.js";
@@ -14,8 +15,9 @@ export * from "./features.js";
 export * from "./riskEngine.js";
 export { MockRiskAnalyzer } from "./mockAnalyzer.js";
 export { OciRiskAnalyzer, type OciAnalyzerConfig } from "./ociAnalyzer.js";
+export { EdgeRiskAnalyzer, type EdgeAnalyzerConfig } from "./edgeAnalyzer.js";
 
-export type AnalyzerKind = "mock" | "oci";
+export type AnalyzerKind = "mock" | "edge" | "oci";
 
 /** A chave privada pode vir em uma linha só, com \n escapado (formato .env). */
 function normalizePrivateKey(raw: string): string {
@@ -28,6 +30,17 @@ export function createAnalyzer(env: NodeJS.ProcessEnv = process.env): RiskAnalyz
   switch (kind) {
     case "mock":
       return new MockRiskAnalyzer();
+
+    case "edge":
+      return new EdgeRiskAnalyzer({
+        modelPath: env.EDGE_MODEL_PATH ?? "",
+        ...(env.EDGE_MODELS_DIR ? { modelsDir: env.EDGE_MODELS_DIR } : {}),
+        ...(env.EDGE_CONTEXT_SIZE ? { contextSize: Number(env.EDGE_CONTEXT_SIZE) } : {}),
+        ...(env.EDGE_MAX_TOKENS ? { maxTokens: Number(env.EDGE_MAX_TOKENS) } : {}),
+        ...(env.EDGE_GPU_LAYERS ? { gpuLayers: Number(env.EDGE_GPU_LAYERS) } : {}),
+        // Sem reserva, um modelo que não carrega viraria conversa não analisada.
+        fallback: new MockRiskAnalyzer(),
+      });
 
     case "oci":
       return new OciRiskAnalyzer({

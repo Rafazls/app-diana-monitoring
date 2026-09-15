@@ -19,6 +19,7 @@
   "dependencies": {
     "@fastify/cors": "^9.0.1",
     "fastify": "^4.28.1",
+    "node-llama-cpp": "^3.21.1",
     "oci-common": "^2.140.1",
     "oci-generativeaiinference": "^2.140.1",
     "oracledb": "^7.0.1",
@@ -29,5 +30,8 @@
     "@types/oracledb": "^7.0.3",
     "typescript": "^5.6.3",
     "vitest": "^2.1.4"
+  },
+  "allowScripts": {
+    "node-llama-cpp@3.21.1": true
   }
 }

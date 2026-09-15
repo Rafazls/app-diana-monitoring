@@ -31,7 +31,12 @@ const schema = z.object({
   CONTEXT_BATCHES: z.coerce.number().int().min(1).max(20).default(3),
 
   // --- análise ---
-  ANALYZER: z.enum(["mock", "oci"]).default("mock"),
+  ANALYZER: z.enum(["mock", "edge", "oci"]).default("mock"),
+  EDGE_MODEL_PATH: z.string().default(""),
+  EDGE_MODELS_DIR: z.string().default("./models"),
+  EDGE_CONTEXT_SIZE: z.coerce.number().int().min(512).default(4096),
+  EDGE_MAX_TOKENS: z.coerce.number().int().min(64).default(800),
+  EDGE_GPU_LAYERS: z.string().default(""),
   OCI_COMPARTMENT_ID: z.string().default(""),
   OCI_MODEL_ID: z.string().default(""),
   OCI_REGION: z.string().default(""),
@@ -60,7 +65,7 @@ export interface AppConfig {
   corsOrigins: string[];
   apiKey: string;
   ingestion: "fixtures" | "telegram";
-  analyzer: "mock" | "oci";
+  analyzer: "mock" | "edge" | "oci";
   store: "memory" | "file" | "oracle";
   childName: string;
   batchIntervalMs: number;
@@ -88,6 +93,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   // Falhar cedo é melhor do que subir um bot que nunca recebe nada.
   if (d.INGESTION === "telegram" && !d.TELEGRAM_BOT_TOKEN) {
     throw new Error("INGESTION=telegram exige TELEGRAM_BOT_TOKEN.");
+  }
+
+  if (d.ANALYZER === "edge" && !d.EDGE_MODEL_PATH) {
+    throw new Error("ANALYZER=edge exige EDGE_MODEL_PATH (caminho do .gguf ou URI hf:).");
   }
 
   if (d.ANALYZER === "oci") {
