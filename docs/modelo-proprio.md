@@ -75,54 +75,221 @@ O que falta para esse caminho é **dado rotulado** — veja a seção 5.
 
 ---
 
-## 3. Criar a VM na Oracle
+## 3. Criar a VM na Oracle — passo a passo
 
-### 3.1 Provisionar
+O formulário de criação tem várias seções, e cada uma esconde uma decisão que
+custa caro se passar batido. Vamos por partes.
 
 ☰ → **Compute** → **Instances** → **Create instance**
 
+---
+
+### 3.1 Nome e compartimento
+
 - **Name**: `diana-modelo`
-- **Compartment**: `diana`
-- **Image**: Ubuntu 22.04 (ou Oracle Linux 9)
-- **Shape**: **Change shape** → *Ampere* → **VM.Standard.A1.Flex**
-  - **OCPUs**: 2
-  - **Memory**: 12 GB
-  - > Se aparecer *Out of capacity*, tente outro *Availability Domain* ou volte
-    > mais tarde — a capacidade Always Free de Ampere é disputada.
-- **Boot volume**: 50 GB é suficiente
-- **SSH keys**: gere ou envie a sua chave pública
+- **Create in compartment**: selecione **`diana`**
 
-Anote o **IP público** da instância.
+> Se você criar no compartimento errado, a política que escrevemos e o controle
+> de custo do projeto deixam de valer para esta VM. Confira antes de seguir.
 
-### 3.2 Liberar a porta — com cuidado
+---
 
-O servidor de modelo **não pode ficar aberto para a internet**. Quem alcançar
-essa porta consegue usar seu modelo à vontade, e ainda enxergar os trechos de
-conversa enviados no prompt.
+### 3.2 Placement — e o erro que mais trava o Always Free
 
-**O jeito certo**, se o backend roda fora da OCI: libere **apenas o seu IP**.
+**Availability Domain** é o "prédio" do datacenter onde a máquina nasce.
 
-☰ → **Networking** → **Virtual Cloud Networks** → sua VCN → **Security Lists**
-→ **Default Security List** → **Add Ingress Rules**
+Deixe no padrão, **mas guarde este ponto**: a capacidade Ampere do Always Free
+é disputada, e é comum receber:
 
-- **Source CIDR**: `SEU.IP.PUBLICO/32` ← **não use `0.0.0.0/0`**
-- **Destination Port Range**: `8080`
-
-> Descubra seu IP com `curl ifconfig.me`. Se ele mudar (IP residencial
-> costuma mudar), atualize a regra.
-
-**Melhor ainda:** quando o backend também estiver na OCI, use o IP **privado**
-da VM e não abra nada para fora.
-
-### 3.3 Instalar o servidor de modelo
-
-Conecte por SSH:
-
-```bash
-ssh ubuntu@SEU_IP_PUBLICO
+```text
+Out of host capacity
 ```
 
-Instale o llama.cpp compilado para ARM:
+**Isso não é erro seu.** Significa que não há máquina Ampere gratuita livre
+naquele momento. O que fazer:
+
+1. Se a região oferecer **mais de um Availability Domain**, troque de AD e
+   tente de novo — é o teste mais rápido.
+2. Tente em **horários de baixa demanda** (madrugada costuma funcionar).
+3. Insista ao longo do dia. Capacidade é liberada quando outras contas
+   destroem instâncias.
+4. **Não troque de região.** Recursos Always Free só existem na sua **home
+   region** — se você criar em outra, será cobrado.
+
+> Existe gente que automatiza a repetição da chamada de criação até passar.
+> Funciona, mas comece pelo simples: trocar de AD e tentar em outro horário.
+
+---
+
+### 3.3 Security
+
+Esta é a aba que costuma gerar dúvida — e a resposta curta é: **deixe como
+está**.
+
+| Opção | O que faz | Para este projeto |
+|---|---|---|
+| **Shielded instance** | Secure Boot e TPM, contra adulteração do boot | Ligue **se aparecer disponível** — não custa nada. Nem todo shape oferece. |
+| **Confidential computing** | Criptografa a memória em uso | Indisponível em Ampere A1. Ignore. |
+
+Nenhuma das duas é necessária para o modelo funcionar. Se *Shielded instance*
+estiver disponível e você ligar, não muda nada no uso — só endurece o boot.
+
+> A segurança que **realmente** importa aqui não está nesta aba: é não expor a
+> porta do modelo para a internet (seção 3.7).
+
+---
+
+### 3.4 Image and shape — onde você escolhe o que importa
+
+Clique em **Edit** nesta seção.
+
+**Image:**
+- **Change image** → **Canonical Ubuntu** → **22.04**
+- Confirme que a imagem é compatível com **aarch64/ARM** (a lista já filtra
+  conforme o shape escolhido)
+
+**Shape** — o passo decisivo:
+1. **Change shape**
+2. Aba **Ampere** (não "AMD" nem "Intel")
+3. Selecione **VM.Standard.A1.Flex**
+4. Ajuste os controles:
+   - **OCPUs**: `2`
+   - **Memory (GB)**: `12`
+
+✅ **Procure o selo "Always Free Eligible"** ao lado do shape. Se ele não
+aparecer, você vai ser cobrado. Confira antes de prosseguir.
+
+> Não passe de 2 OCPUs / 12 GB: é o teto do Always Free somado em toda a
+> tenancy. Com 3 OCPUs, a instância inteira vira paga.
+
+---
+
+### 3.5 Networking
+
+Aqui ficam três decisões importantes.
+
+**Rede:**
+- **Primary network**: *Create new virtual cloud network* (se ainda não tiver
+  uma) — aceite os nomes e faixas sugeridos
+- **Subnet**: *Create new public subnet*
+  - Precisa ser **pública** para a VM receber IP acessível de fora
+
+**Configuração de IPv4 — a que você perguntou:**
+
+| Opção | Quando usar |
+|---|---|
+| **Assign a public IPv4 address: Yes** | Backend roda **fora** da OCI (sua máquina agora) |
+| **No** | Backend também na OCI — usa o IP **privado**, mais seguro |
+
+Para começar, marque **Yes**: você vai conectar da sua máquina.
+
+- **Private IPv4 address**: deixe *Automatically assign* — o IP privado é
+  atribuído pela subnet e não precisa de escolha
+- **IPv6**: deixe desligado; não usamos
+
+> ⚠️ O **IP público é efêmero por padrão** — muda se a instância for parada e
+> reiniciada, e aí o `.env` do backend para de funcionar sem aviso claro. Se for
+> incomodar, depois de criada vá em **Instance → Attached VNICs → IP addresses**
+> e converta o IP público para **Reserved**. Reservado, ele não muda.
+
+---
+
+### 3.6 SSH keys
+
+- **Generate a key pair for me** → **Save private key** (e também a pública)
+- Ou **Upload public key files** se você já tem um par
+
+> 🔑 Guarde a chave privada **agora**. A Oracle não a mostra de novo, e sem ela
+> não há como entrar na máquina — só recriar a instância.
+
+Depois de baixar, no Linux:
+
+```bash
+mv ~/Downloads/ssh-key-*.key ~/.ssh/diana-modelo.key
+chmod 600 ~/.ssh/diana-modelo.key
+```
+
+O `chmod` não é opcional: o SSH recusa chave com permissão aberta.
+
+---
+
+### 3.7 Boot volume — o armazenamento
+
+| Campo | Valor | Por quê |
+|---|---|---|
+| **Boot volume size** | **50 GB** | O mínimo é 47 GB. O modelo ocupa ~2 GB, o sistema ~8 GB; 50 dá folga confortável. |
+| **Boot volume performance** | *Balanced* (padrão) | Suficiente. Performance maior é cobrada. |
+| **Encrypt this volume with a key you manage** | **não marque** | Sem marcar, a Oracle já criptografa com chave gerenciada por ela. Marcar exige um Vault configurado. |
+| **Backup policy** | opcional | O Always Free inclui 5 backups. Para um servidor de modelo é dispensável: o que há aqui é sistema e um `.gguf` rebaixável. |
+
+> O Always Free dá **200 GB no total** somando todos os boot e block volumes.
+> Com 50 GB nesta VM, sobram 150 GB para o resto.
+
+Clique em **Create**.
+
+---
+
+### 3.8 Liberar a porta — sem abrir para o mundo
+
+A instância sobe com tudo bloqueado. Para o backend alcançar o modelo, é
+preciso liberar a porta **em dois lugares** — e é comum lembrar de só um deles,
+o que faz o `curl` travar sem mensagem de erro.
+
+#### a) Na rede da Oracle
+
+O caminho moderno é um **Network Security Group**, que vale só para esta
+instância — melhor que mexer na Security List, que vale para a subnet toda.
+
+☰ → **Networking** → **Virtual Cloud Networks** → sua VCN → **Network Security
+Groups** → **Create NSG**
+
+- **Name**: `diana-modelo-nsg`
+- Em **Security Rules**, adicione uma regra de entrada:
+  - **Direction**: Ingress
+  - **Source Type**: CIDR
+  - **Source CIDR**: `SEU.IP.PUBLICO/32`
+  - **IP Protocol**: TCP
+  - **Destination Port Range**: `8080`
+
+Depois associe o NSG à instância:
+**Compute → Instances → `diana-modelo` → Attached VNICs → a VNIC → Edit →
+Network Security Groups → adicione `diana-modelo-nsg`**
+
+Descubra seu IP com:
+
+```bash
+curl ifconfig.me
+```
+
+> 🔒 **Nunca use `0.0.0.0/0` aqui.** Isso publica seu modelo para a internet
+> inteira: qualquer um poderia consumi-lo e, pior, os trechos de conversa
+> enviados no prompt ficariam ao alcance de quem achasse a porta.
+>
+> IP residencial costuma mudar. Se o `curl` parar de funcionar do nada,
+> reconfira seu IP e atualize a regra.
+
+#### b) No firewall do sistema
+
+Ubuntu na OCI vem com iptables fechado, independente do que a Oracle libera:
+
+```bash
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 8080 -j ACCEPT
+sudo netfilter-persistent save
+```
+
+Sem o `netfilter-persistent save`, a regra some no próximo reboot.
+
+---
+
+### 3.9 Conectar e preparar a máquina
+
+```bash
+ssh -i ~/.ssh/diana-modelo.key ubuntu@SEU_IP_PUBLICO
+```
+
+> Usuário é `ubuntu` na imagem Canonical; em Oracle Linux é `opc`.
+
+Compile o llama.cpp para ARM:
 
 ```bash
 sudo apt update && sudo apt install -y build-essential cmake git libcurl4-openssl-dev
@@ -131,6 +298,9 @@ cd llama.cpp
 cmake -B build -DLLAMA_CURL=ON
 cmake --build build --config Release -j2
 ```
+
+> A compilação leva de 10 a 20 minutos em 2 núcleos. Use `-j2`: com mais
+> paralelismo a máquina fica sem memória e o build morre sem explicação clara.
 
 Baixe o modelo:
 
@@ -149,13 +319,18 @@ Teste antes de virar serviço:
   -c 4096 -t 2
 ```
 
-Em outro terminal:
+Em outro terminal, **da própria VM** primeiro:
 
 ```bash
 curl http://localhost:8080/v1/models
 ```
 
-### 3.4 Deixar rodando como serviço
+Se responder ali mas **não** da sua máquina, o problema é rede (3.8), não o
+modelo.
+
+---
+
+### 3.10 Deixar rodando como serviço
 
 ```bash
 sudo tee /etc/systemd/system/llama.service > /dev/null <<'EOF'
@@ -180,14 +355,22 @@ sudo systemctl enable --now llama
 sudo systemctl status llama
 ```
 
-O firewall interno do Ubuntu na OCI também bloqueia por padrão:
-
-```bash
-sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 8080 -j ACCEPT
-sudo netfilter-persistent save
-```
+`Restart=always` garante que o modelo volte sozinho depois de um reboot da
+instância — sem isso, a análise cairia para a heurística silenciosamente até
+alguém perceber.
 
 ---
+
+### 3.11 Checklist antes de conectar a aplicação
+
+- [ ] Shape mostrava **Always Free Eligible** ao criar
+- [ ] Chave privada salva e com `chmod 600`
+- [ ] SSH conecta
+- [ ] `curl http://localhost:8080/v1/models` responde **dentro da VM**
+- [ ] `curl http://IP_PUBLICO:8080/v1/models` responde **da sua máquina**
+- [ ] `systemctl status llama` mostra *active (running)*
+
+Só com todos marcados vale ir para a seção 4.
 
 ## 4. Conectar a aplicação
 
