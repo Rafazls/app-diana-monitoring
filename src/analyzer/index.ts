@@ -7,6 +7,7 @@
  */
 import { MockRiskAnalyzer } from "./mockAnalyzer.js";
 import { OciRiskAnalyzer, type ModelFamily } from "./ociAnalyzer.js";
+import { ServerRiskAnalyzer } from "./serverAnalyzer.js";
 import type { RiskAnalyzer } from "./types.js";
 
 export * from "./types.js";
@@ -14,8 +15,9 @@ export * from "./features.js";
 export * from "./riskEngine.js";
 export { MockRiskAnalyzer } from "./mockAnalyzer.js";
 export { OciRiskAnalyzer, type OciAnalyzerConfig } from "./ociAnalyzer.js";
+export { ServerRiskAnalyzer, type ServerAnalyzerConfig } from "./serverAnalyzer.js";
 
-export type AnalyzerKind = "mock" | "oci";
+export type AnalyzerKind = "mock" | "server" | "oci";
 
 /** A chave privada pode vir em uma linha só, com \n escapado (formato .env). */
 function normalizePrivateKey(raw: string): string {
@@ -28,6 +30,18 @@ export function createAnalyzer(env: NodeJS.ProcessEnv = process.env): RiskAnalyz
   switch (kind) {
     case "mock":
       return new MockRiskAnalyzer();
+
+    case "server":
+      return new ServerRiskAnalyzer({
+        baseUrl: env.MODEL_SERVER_URL ?? "",
+        model: env.MODEL_SERVER_MODEL ?? "",
+        ...(env.MODEL_SERVER_API_KEY ? { apiKey: env.MODEL_SERVER_API_KEY } : {}),
+        ...(env.MODEL_SERVER_TIMEOUT_MS ? { timeoutMs: Number(env.MODEL_SERVER_TIMEOUT_MS) } : {}),
+        ...(env.MODEL_SERVER_MAX_RETRIES ? { maxRetries: Number(env.MODEL_SERVER_MAX_RETRIES) } : {}),
+        ...(env.MODEL_SERVER_JSON_MODE === "false" ? { jsonMode: false } : {}),
+        // Sem reserva, servidor fora do ar viraria conversa não analisada.
+        fallback: new MockRiskAnalyzer(),
+      });
 
     case "oci":
       return new OciRiskAnalyzer({
