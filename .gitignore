@@ -20,7 +20,3 @@ yarn-error.log*
 # SO / editor
 .DS_Store
 coverage/
-
-# Modelos de edge AI (baixados sob demanda, ~2GB cada)
-models/
-*.gguf
