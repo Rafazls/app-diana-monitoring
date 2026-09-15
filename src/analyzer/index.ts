@@ -41,6 +41,7 @@ export function createAnalyzer(env: NodeJS.ProcessEnv = process.env): RiskAnalyz
         ...(env.OCI_PRIVATE_KEY ? { privateKey: normalizePrivateKey(env.OCI_PRIVATE_KEY) } : {}),
         ...(env.OCI_PASSPHRASE ? { passphrase: env.OCI_PASSPHRASE } : {}),
         ...(env.OCI_TIMEOUT_MS ? { timeoutMs: Number(env.OCI_TIMEOUT_MS) } : {}),
+        ...(env.OCI_MAX_RETRIES ? { maxRetries: Number(env.OCI_MAX_RETRIES) } : {}),
         // Sem reserva, uma instabilidade da nuvem viraria conversa não analisada.
         fallback: new MockRiskAnalyzer(),
       });

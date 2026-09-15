@@ -198,7 +198,39 @@ Formato: {"signals":[{"type":"secrecy_request|image_request","messageIds":["..."
 | `NotAuthorizedOrNotFound` | A política do 2.4 não existe, está no compartimento errado, ou o nome do grupo está errado |
 | O modelo não aparece na lista | Você não está em São Paulo — confira a região |
 | `Compartment not found` | O seletor de compartimento está apontando para outro lugar |
+| `429 ... throttled for tenant` | Limite de requisições da tenancy. Veja abaixo — **não é erro de permissão** |
 | Erro de cota ou billing | Conta trial sem créditos válidos, ou créditos expirados |
+
+#### Se aparecer `429: request is throttled for tenant`
+
+Esse erro é, de certa forma, uma boa notícia: a requisição **foi autorizada** e
+chegou ao serviço. Região e política estão corretas — o que faltou foi cota.
+
+A Generative AI limita a taxa de requisições **por tenancy**, e contas novas
+costumam vir com um limite baixo.
+
+**O que fazer, em ordem:**
+
+1. **Espere um minuto e tente de novo.** Se o limite for por janela de tempo,
+   pode passar sozinho — é o teste mais barato.
+2. **Confira o tipo da conta.** ☰ → **Billing & Cost Management** →
+   **Payment Method**. Se aparecer *Free Tier* / *Trial*, a Generative AI pode
+   estar limitada até o upgrade para pago. Ter créditos não é o mesmo que ter
+   conta paga.
+3. **Peça aumento de limite.** ☰ → **Governance & Administration** →
+   **Limits, Quotas and Usage**:
+   - **Service**: Generative AI
+   - **Scope**: Brazil East (São Paulo)
+   - Localize o limite de requisições e clique em **Request a service limit increase**
+   - Descreva o uso: análise de texto por batch, com volume modesto
+
+   > Contas trial normalmente **não podem** abrir pedido de aumento. Nesse caso,
+   > o upgrade para pago é o caminho.
+
+**Enquanto isso, o projeto não fica parado.** O backend já lida com 429:
+repete a chamada com espaçamento crescente (`OCI_MAX_RETRIES`) e, se ainda
+assim não passar, analisa pela heurística local — nenhuma conversa deixa de
+ser avaliada. Para desenvolver sem depender da nuvem, use `ANALYZER=mock`.
 
 ### 2.6 Anotar o identificador do modelo
 

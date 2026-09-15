@@ -42,6 +42,7 @@ const schema = z.object({
   OCI_PRIVATE_KEY: z.string().default(""),
   OCI_PASSPHRASE: z.string().default(""),
   OCI_TIMEOUT_MS: z.coerce.number().int().min(1000).default(30_000),
+  OCI_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(3),
 
   // --- persistência ---
   STORE: z.enum(["memory", "file", "oracle"]).default("memory"),

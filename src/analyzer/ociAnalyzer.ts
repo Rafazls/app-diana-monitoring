@@ -37,6 +37,8 @@ export interface OciAnalyzerConfig {
   privateKey?: string;
   passphrase?: string;
   timeoutMs?: number;
+  /** Tentativas extras quando a OCI responde 429. */
+  maxRetries?: number;
   /** Motor de reserva quando a nuvem falha. */
   fallback?: RiskAnalyzer;
 }
@@ -64,10 +66,28 @@ function buildAuthProvider(
   return new common.InstancePrincipalsAuthenticationDetailsProviderBuilder().build();
 }
 
+/**
+ * Identifica throttling da OCI (HTTP 429).
+ *
+ * A Generative AI limita a taxa de requisições POR TENANCY, e o limite é
+ * compartilhado com qualquer outra coisa que use o serviço na conta. Num
+ * sistema que dispara a cada batch, esbarrar nisso é questão de tempo — não
+ * é sinal de que algo está quebrado.
+ */
+function isThrottled(err: unknown): boolean {
+  const e = err as { statusCode?: number; status?: number; message?: string };
+  if (e?.statusCode === 429 || e?.status === 429) return true;
+  const msg = String(e?.message ?? err ?? "").toLowerCase();
+  return msg.includes("429") || msg.includes("throttl") || msg.includes("too many requests");
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export class OciRiskAnalyzer implements RiskAnalyzer {
   readonly name: string;
   private client: genai.GenerativeAiInferenceClient | null = null;
   private readonly timeoutMs: number;
+  private readonly maxRetries: number;
 
   constructor(private readonly config: OciAnalyzerConfig) {
     const faltando = (["compartmentId", "modelId", "region"] as const).filter((k) => !config[k]);
@@ -80,6 +100,7 @@ export class OciRiskAnalyzer implements RiskAnalyzer {
     }
     this.name = `oci:${config.modelId}`;
     this.timeoutMs = config.timeoutMs ?? 30_000;
+    this.maxRetries = config.maxRetries ?? 3;
   }
 
   /** Cliente é criado sob demanda: o boot não deve depender da nuvem. */
@@ -168,13 +189,45 @@ export class OciRiskAnalyzer implements RiskAnalyzer {
       });
 
       const inicio = Date.now();
-      const resposta = await Promise.race([
-        client.chat({ chatDetails: request as never }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`timeout de ${this.timeoutMs}ms`)), this.timeoutMs),
-        ),
-      ]);
+
+      /**
+       * Throttling merece nova tentativa; os demais erros, não.
+       *
+       * Cair direto na heurística a cada 429 degradaria a análise por um
+       * problema momentâneo de fila. O espaçamento cresce a cada tentativa
+       * (1s, 2s, 4s) com um jitter, para várias conversas que falharam juntas
+       * não voltarem todas no mesmo instante e causarem novo pico.
+       */
+      let resposta: unknown;
+      let tentativa = 0;
+      for (;;) {
+        try {
+          resposta = await Promise.race([
+            client.chat({ chatDetails: request as never }),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error(`timeout de ${this.timeoutMs}ms`)), this.timeoutMs),
+            ),
+          ]);
+          break;
+        } catch (err) {
+          if (!isThrottled(err) || tentativa >= this.maxRetries) throw err;
+          const espera = Math.round(2 ** tentativa * 1000 * (1 + Math.random() * 0.3));
+          tentativa += 1;
+          logger.warn(
+            `OCI respondeu 429 (limite da tenancy). Tentativa ${tentativa}/${this.maxRetries} em ${espera}ms.`,
+          );
+          await sleep(espera);
+        }
+      }
+
       const duracao = Date.now() - inicio;
+      if (tentativa > 0) {
+        audit.push({
+          timestamp: processedAt,
+          stage: "ml_analysis",
+          description: `Requisição repetida ${tentativa}x por limite de taxa da tenancy.`,
+        });
+      }
 
       const texto = this.extractText(resposta);
       const parsed = parseLlmResponse(texto);
@@ -224,7 +277,15 @@ export class OciRiskAnalyzer implements RiskAnalyzer {
       });
     } catch (err) {
       const motivo = err instanceof Error ? err.message : String(err);
-      logger.error(`OCI Generative AI falhou (${motivo}).`);
+      if (isThrottled(err)) {
+        logger.error(
+          "OCI Generative AI segue limitando a taxa após as tentativas. " +
+            "Se isso persistir, o limite da tenancy precisa ser aumentado " +
+            "(veja docs/provisionamento-oci.md).",
+        );
+      } else {
+        logger.error(`OCI Generative AI falhou (${motivo}).`);
+      }
 
       if (!this.config.fallback) throw err;
 
