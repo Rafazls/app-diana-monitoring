@@ -392,15 +392,22 @@ vez de digitar.
 
 ### 4.2 Imagem do sistema
 
-A VM Always Free é **ARM** (Ampere A1). Imagem de x86 não sobe nela, e o erro
-não diz isso com todas as letras. Filtre pela shape:
+A VM é **ARM** (Ampere). Imagem de x86 não sobe nela, e o erro não diz isso com
+todas as letras. Filtre pela shape:
+
+> **A1 ou A2?** A `VM.Standard.A1.Flex` é a shape do Always Free — e por ser
+> gratuita, é a mais disputada: em São Paulo ela responde `Out of host capacity`
+> por dias seguidos. A `VM.Standard.A2.Flex` é a geração seguinte, **paga**, e
+> por isso tem capacidade real. As duas rodam a **mesma imagem `aarch64`**, e
+> trocar entre elas é mudar só o `--shape`. Os comandos abaixo usam A2; para
+> tentar a gratuita, troque `A2` por `A1` em todos eles.
 
 ```bash
 oci compute image list \
   --compartment-id "$COMPARTMENT_OCID" \
   --operating-system "Canonical Ubuntu" \
   --operating-system-version "22.04" \
-  --shape "VM.Standard.A1.Flex" \
+  --shape "VM.Standard.A2.Flex" \
   --sort-by TIMECREATED --sort-order DESC \
   --output table --query 'data[0:5].{nome:"display-name",id:id}'
 
@@ -408,7 +415,7 @@ export IMAGE_OCID=$(oci compute image list \
   --compartment-id "$COMPARTMENT_OCID" \
   --operating-system "Canonical Ubuntu" \
   --operating-system-version "22.04" \
-  --shape "VM.Standard.A1.Flex" \
+  --shape "VM.Standard.A2.Flex" \
   --sort-by TIMECREATED --sort-order DESC \
   --query 'data[0].id' --raw-output)
 ```
@@ -434,7 +441,7 @@ export INSTANCE_OCID=$(oci compute instance launch \
   --compartment-id "$COMPARTMENT_OCID" \
   --subnet-id "$SUBNET_OCID" \
   --nsg-ids "[\"$NSG_OCID\"]" \
-  --shape "VM.Standard.A1.Flex" \
+  --shape "VM.Standard.A2.Flex" \
   --shape-config '{"ocpus": 2, "memory_in_gbs": 12}' \
   --image-id "$IMAGE_OCID" \
   --boot-volume-size-in-gbs 100 \
@@ -453,19 +460,25 @@ Os três obrigatórios são `--availability-domain`, `--compartment-id` e
 
 | Opção | Por que assim |
 |---|---|
-| `--shape VM.Standard.A1.Flex` | a shape ARM do Always Free |
-| `--shape-config '{"ocpus": 2, "memory_in_gbs": 12}'` | metade da cota gratuita (4 OCPU / 24 GB) — sobra para uma segunda VM |
-| `--boot-volume-size-in-gbs 100` | metade dos 200 GB gratuitos; 50 GB não caberia modelo + cache |
+| `--shape VM.Standard.A2.Flex` | ARM Ampere, geração com capacidade disponível |
+| `--shape-config '{"ocpus": 2, "memory_in_gbs": 12}'` | o A2 aceita 1–78 OCPU e até 64 GB por OCPU; 2/12 serve um modelo 3B–7B quantizado |
+| `--boot-volume-size-in-gbs 100` | 50 GB não caberia modelo + cache do sistema |
 | `--assign-public-ip true` | sem isso não há SSH de fora |
 | `--nsg-ids` | aplica o firewall do passo 3 |
 
-A cota gratuita de A1 é compartilhada na tenancy inteira: **4 OCPUs e 24 GB no
-total**, não por VM.
+> ⚠️ **O A2 é cobrado por hora, enquanto a instância existir** — parada ou não,
+> o boot volume continua contando. Isso é diferente do A1 dentro da cota
+> gratuita. Se a VM é para uma demonstração com data marcada, crie perto da
+> data e **termine depois** (passo 7.3). Vale criar um alerta de orçamento
+> antes, não depois.
 
-> **`Out of host capacity`** é o erro mais comum aqui, e não é erro seu — é
-> falta de máquina ARM livre na região naquele instante. Ele acontece com
-> frequência em São Paulo. Repetir o mesmo comando depois de alguns minutos
-> costuma resolver; não adianta mudar parâmetro.
+**Se ainda quiser tentar a gratuita:** troque `A2` por `A1` e repita o comando —
+a imagem é a mesma. O erro esperado é:
+
+> **`Out of host capacity`**, que não é erro seu: é falta de máquina ARM livre
+> na região naquele instante. Em São Paulo o A1 fica assim por dias. Repetir o
+> comando adiante pode resolver; mudar parâmetro não resolve. Foi exatamente
+> essa parede que motivou o A2 como padrão aqui.
 
 ### 4.5 IP público e primeiro acesso
 
@@ -626,8 +639,17 @@ oci budgets budget list -c "$TENANCY_OCID" --output table 2>/dev/null \
   || echo "sem budget configurado"
 ```
 
-Vale criar um alerta de orçamento no console mesmo em conta Free Tier: é o que
-avisa quando um recurso saiu silenciosamente da cota gratuita.
+Com a VM em `VM.Standard.A2.Flex`, **há um recurso cobrado rodando de
+propósito** — não é mais um caso de "passou da cota sem perceber". Os dois itens
+que contam a hora aqui são a instância e o boot volume dela; o Autonomous
+Database em Always Free não entra.
+
+Crie o alerta de orçamento no console (*Billing & Cost Management* → *Budgets*)
+**antes** de subir a instância. Um alerta criado depois de uma VM esquecida
+ligada por três semanas avisa sobre uma conta que já existe.
+
+A instância parada continua cobrando o armazenamento. Quem para o relógio de
+verdade é o `terminate` do passo 7.3.
 
 ### 7.3 Derrubar
 
@@ -723,13 +745,13 @@ AD_NAME=$(oci iam availability-domain list -c "$COMPARTMENT_OCID" \
 
 IMAGE_OCID=$(oci compute image list -c "$COMPARTMENT_OCID" \
   --operating-system "Canonical Ubuntu" --operating-system-version "22.04" \
-  --shape "VM.Standard.A1.Flex" --sort-by TIMECREATED --sort-order DESC \
+  --shape "VM.Standard.A2.Flex" --sort-by TIMECREATED --sort-order DESC \
   --query 'data[0].id' --raw-output)
 
 INSTANCE_OCID=$(oci compute instance launch \
   --availability-domain "$AD_NAME" -c "$COMPARTMENT_OCID" \
   --subnet-id "$SUBNET_OCID" --nsg-ids "[\"$NSG_OCID\"]" \
-  --shape "VM.Standard.A1.Flex" \
+  --shape "VM.Standard.A2.Flex" \
   --shape-config '{"ocpus": 2, "memory_in_gbs": 12}' \
   --image-id "$IMAGE_OCID" --boot-volume-size-in-gbs 100 \
   --assign-public-ip true \
@@ -776,7 +798,8 @@ Guarde-o **fora** deste repositório (por exemplo `~/.oci/provisionar-diana.sh`)
 |---|---|---|
 | `NotAuthenticated` | chave pública não registrada, ou fingerprint divergente | conferir *My profile* → *API keys* |
 | `Out of host capacity` | não há ARM livre na região agora | repetir depois; não é configuração |
-| `LimitExceeded` A1 | a cota de 4 OCPU / 24 GB é da tenancy toda | reduzir `--shape-config` ou terminar outra VM |
+| `Out of host capacity` | sem máquina livre da shape pedida | trocar A1 → A2, ou repetir mais tarde |
+| `LimitExceeded` | cota da shape esgotada na tenancy | `oci limits resource-availability get` para ver o saldo |
 | `Invalid db name` | hífen, underscore, ou nome repetido na tenancy | só letras e números, começando por letra |
 | `admin password` rejeitada | contém `"` ou a palavra `admin` | trocar a senha |
 | `ServiceError 404` no compartimento recém-criado | propagação | aguardar ~30s |
