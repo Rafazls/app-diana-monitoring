@@ -480,7 +480,72 @@ a imagem é a mesma. O erro esperado é:
 > comando adiante pode resolver; mudar parâmetro não resolve. Foi exatamente
 > essa parede que motivou o A2 como padrão aqui.
 
-### 4.5 IP público e primeiro acesso
+### 4.5 Redimensionar a VM depois
+
+A shape é *flex*: dá para mudar OCPU e memória sem recriar a instância, sem
+perder o disco e sem reinstalar nada.
+
+```bash
+source ~/.oci/diana-env.sh
+
+oci compute instance update \
+  --instance-id "$INSTANCE_OCID" \
+  --shape-config '{"ocpus": 4, "memory_in_gbs": 48}' \
+  --force
+```
+
+**A instância reinicia sozinha** ao aplicar — não precisa parar antes, mas a
+conexão cai e o serviço fica fora do ar por um ou dois minutos. Com
+`--restart unless-stopped` no container, o modelo volta sem intervenção.
+
+Limites do `VM.Standard.A2.Flex`: 1 a 78 OCPUs, 1 a 64 GB de memória **por
+OCPU**. Consulte antes de pedir um valor que a shape não aceita:
+
+```bash
+oci compute shape list -c "$COMPARTMENT_OCID" \
+  --availability-domain "$AD_NAME" --all \
+  --query 'data[?shape==`VM.Standard.A2.Flex`] | [0]."ocpu-options"'
+```
+
+Confirme o que ficou valendo:
+
+```bash
+oci compute instance get --instance-id "$INSTANCE_OCID" \
+  --query 'data."shape-config"' --output table
+```
+
+#### Quanto adianta, na prática
+
+Medições deste projeto, mesmo modelo (Qwen2.5-3B Q4_K_M) e mesmo prompt:
+
+| Máquina | Latência por análise | tok/s |
+|---|---|---|
+| i5-1135G7, 4 núcleos, **AVX512-VNNI** | **~11s** | 11,3 |
+| A2.Flex, 2 OCPU (ARM) | 35–59s | 2,3–3,8 |
+
+A diferença não é o número de núcleos — é a instrução vetorial. O AVX512-VNNI
+faz multiplicação de inteiros de 8 bits em hardware, que é exatamente a
+operação de um modelo quantizado. O Ampere não tem equivalente, então dobrar
+OCPUs dobra a velocidade na melhor das hipóteses, enquanto o x86 já começa
+várias vezes à frente.
+
+Consequência para o dimensionamento: **não escolha o tamanho pela RAM.** O
+modelo de 3B ocupa menos de 3 GB; a memória sobra em qualquer configuração. Quem
+manda no tempo de resposta é OCPU, e mesmo assim com retorno decrescente.
+
+> **Custo sobe junto e na hora.** O A2 é cobrado por OCPU/hora: dobrar OCPUs
+> dobra a conta. Se o objetivo é uma demonstração com data marcada, é mais
+> barato aumentar um dia antes e voltar a reduzir depois — o comando é o mesmo,
+> com o número menor.
+
+Se depois de aumentar a análise ainda não couber no `BATCH_INTERVAL_MS`, o
+ajuste honesto é aumentar o intervalo (veja `.env` no passo 6) em vez de
+continuar comprando OCPU: um alerta 60s mais lento é melhor que uma fila que
+nunca esvazia.
+
+---
+
+### 4.6 IP público e primeiro acesso
 
 ```bash
 export VM_IP=$(oci compute instance list-vnics --instance-id "$INSTANCE_OCID" \
@@ -493,7 +558,7 @@ ssh ubuntu@"$VM_IP"
 O usuário é `ubuntu` nas imagens Canonical e `opc` nas Oracle Linux. Login como
 `root` é bloqueado por padrão — isso é intencional, use `sudo`.
 
-### 4.6 O firewall de dentro
+### 4.7 O firewall de dentro
 
 A VM tem um **segundo** firewall, no sistema operacional, independente do NSG.
 Abrir a porta na OCI e esquecer deste é o motivo nº 1 de "a porta está aberta e
@@ -588,24 +653,140 @@ concorrência.
 
 ## 6. Ligar na aplicação
 
-Com tudo provisionado, preencha o `.env` **local** (que o `.gitignore` já
-protege):
+Com tudo provisionado, resta preencher o `.env` do backend — que o `.gitignore`
+já protege, e que é o único lugar onde as credenciais devem existir.
+
+### 6.1 A armadilha que custa uma sessão de depuração
+
+**O `.env` não expande variável de shell.** Quem lê esse arquivo é o Node, não o
+bash. Estas duas linhas estão erradas:
 
 ```bash
-cat >> .env <<EOF
-ANALYZER=server
-MODEL_SERVER_URL=http://$VM_IP:8000/v1
-MODEL_SERVER_MODEL=<nome-do-modelo-servido>
-
-ORACLE_USER=ADMIN
-ORACLE_PASSWORD=<senha-do-admin>
-ORACLE_CONNECT_STRING=dianadb_tp
-ORACLE_WALLET_DIR=$HOME/.oci/diana-wallet
-ORACLE_WALLET_PASSWORD=<senha-da-wallet>
-EOF
+MODEL_SERVER_URL=http://$VM_IP:8000/v1        # vira a string com o cifrão
+ORACLE_WALLET_DIR=$HOME/.oci/diana-wallet     # idem
 ```
 
-Como subir o servidor de modelo dentro dessa VM — qual modelo escolher, como
+O que torna isso pior que um erro comum: o `ServerRiskAnalyzer` tem
+`fallback: MockRiskAnalyzer`. Com a URL inválida, a aplicação **não quebra** —
+ela cai calada na heurística local, continua gerando alertas, e você passa a
+avaliar um modelo que nunca foi consultado.
+
+Escreva os valores por extenso. Para conferir o que a aplicação realmente lê:
+
+```bash
+node --env-file-if-exists=.env \
+  -e 'console.log(process.env.MODEL_SERVER_URL, process.env.ORACLE_WALLET_DIR)'
+```
+
+Se aparecer um `$` na saída, não está resolvido.
+
+### 6.2 Como fica o arquivo
+
+Os valores abaixo são exemplos — troque o IP, as senhas e o nome do modelo
+pelos seus.
+
+```bash
+# ---------------------------------------------------------------------------
+# Ingestão
+# ---------------------------------------------------------------------------
+# fixtures = conversas de exemplo (sobe sem bot e sem token)
+# telegram = bot real via long polling
+INGESTION=telegram
+
+# Token do @BotFather. Desligue o modo privacidade (/setprivacy → Disable),
+# senão o bot só recebe mensagens que o mencionam e o grupo passa em branco.
+TELEGRAM_BOT_TOKEN=123456:AAE...
+# Id numérico da conta da criança. É o que separa "child" de "other" — sem
+# ele, sinais que só contam vindos do interlocutor deixam de ser detectados.
+TELEGRAM_CHILD_ID=987654321
+CHILD_NAME=Rafael
+# Vazio = Telegram real. Aponte para tools/telegram-sim.mjs para testar sem bot.
+TELEGRAM_API_BASE=
+
+# ---------------------------------------------------------------------------
+# Cadência
+# ---------------------------------------------------------------------------
+# Regule pela velocidade do analisador: se a análise demora mais que o
+# intervalo, a fila cresce mais rápido do que esvazia.
+#   modelo em x86 com AVX512 ... 10000
+#   modelo em ARM (A1/A2) ...... 60000
+BATCH_INTERVAL_MS=10000
+CONTEXT_BATCHES=3
+
+# ---------------------------------------------------------------------------
+# Análise
+# ---------------------------------------------------------------------------
+# mock   = heurística determinística, sem custo e sem credencial
+# server = modelo próprio (esta VM, sua máquina, qualquer API compatível)
+# oci    = OCI Generative AI (exige conta paga; Free Tier responde 429)
+ANALYZER=server
+
+# IP POR EXTENSO — ver 6.1.
+#   modelo na VM ............... http://163.176.70.177:8000/v1
+#   modelo na própria máquina .. http://127.0.0.1:8000/v1
+MODEL_SERVER_URL=http://163.176.70.177:8000/v1
+# Exatamente o `id` que o servidor publica:
+#   curl -s http://163.176.70.177:8000/v1/models
+MODEL_SERVER_MODEL=qwen2.5-3b
+MODEL_SERVER_API_KEY=
+# Em ARM uma análise passa de 1 minuto; cortar no meio vira conversa não
+# analisada, então o teto precisa de folga.
+MODEL_SERVER_TIMEOUT_MS=120000
+MODEL_SERVER_MAX_RETRIES=3
+MODEL_SERVER_JSON_MODE=true
+
+# ---------------------------------------------------------------------------
+# Persistência
+# ---------------------------------------------------------------------------
+# memory = some no reinício (ótimo para demo)
+# file   = grava em STATE_DIR
+# oracle = Autonomous Database; tabelas criadas na 1ª execução
+STORE=oracle
+STATE_DIR=./.state
+
+ORACLE_USER=ADMIN
+ORACLE_PASSWORD=<senha-do-admin-do-adb>
+# Alias do tnsnames. `_tp` é transacional (muitas conexões curtas), que é o
+# perfil desta aplicação; `_high` prioriza consulta longa e é o oposto disso.
+ORACLE_CONNECT_STRING=dianadb_tp
+# Caminho absoluto, sem $HOME — ver 6.1.
+ORACLE_WALLET_DIR=/home/SEU_USUARIO/.oci/diana-wallet
+ORACLE_WALLET_PASSWORD=<senha-da-wallet>
+
+# ---------------------------------------------------------------------------
+# API HTTP
+# ---------------------------------------------------------------------------
+PORT=8080
+HOST=0.0.0.0
+LOG_LEVEL=info
+CORS_ORIGINS=*
+# Vazio = API aberta (só para demo local). Definido = exige header x-api-key.
+# Não é controle de acesso real: não há identidade por responsável.
+GUARDIAN_API_KEY=
+```
+
+Há um `.env.example` completo e comentado na raiz do repositório — ele é a
+referência canônica, e este trecho é um recorte dele.
+
+### 6.3 Conferir que está tudo ligado
+
+```bash
+npm run build && npm start
+```
+
+O boot imprime o que foi realmente carregado:
+
+```
+DIANA backend em http://0.0.0.0:8080
+(ingestão=telegram, análise=server:qwen2.5-3b, batches=oracle, alertas=oracle)
+Batches a cada 10s, analisando as últimas 3 janelas de contexto.
+Telegram conectado como @seu_bot. Aguardando mensagens…
+```
+
+Se `análise=` aparecer como `mock` quando você configurou `server`, é o
+fallback silencioso do 6.1 — confira a URL antes de investigar outra coisa.
+
+Como subir o servidor de modelo dentro da VM — qual modelo escolher, como
 servi-lo em `/v1/chat/completions` e como treiná-lo — está em
 [`modelo-proprio.md`](modelo-proprio.md).
 
@@ -691,9 +872,13 @@ imprime senha nenhuma:
 
 ```bash
 #!/usr/bin/env bash
+# `set -u` aborta nomeando a variável vazia. Sem ele, um OCID em branco vai
+# para a Oracle e volta como "compartmentId is not available" — mensagem que
+# manda você investigar o compartimento, que está perfeito.
 set -euo pipefail
 
 source ~/.oci/diana-env.sh   # precisa de TENANCY_OCID
+: "${TENANCY_OCID:?rode 'oci setup config' e preencha ~/.oci/diana-env.sh}"
 
 read -rsp "Senha do ADMIN do ADB: " ADB_ADMIN_PASSWORD; echo
 read -rsp "Senha da wallet: " WALLET_PASSWORD; echo
@@ -748,6 +933,14 @@ IMAGE_OCID=$(oci compute image list -c "$COMPARTMENT_OCID" \
   --shape "VM.Standard.A2.Flex" --sort-by TIMECREATED --sort-order DESC \
   --query 'data[0].id' --raw-output)
 
+# Imagem x86 numa shape ARM falha de um jeito que não se explica sozinho.
+IMAGE_NOME=$(oci compute image get --image-id "$IMAGE_OCID" \
+  --query 'data."display-name"' --raw-output)
+case "$IMAGE_NOME" in
+  *aarch64*) : ;;
+  *) echo "ABORTANDO: imagem '$IMAGE_NOME' não é aarch64."; exit 1 ;;
+esac
+
 INSTANCE_OCID=$(oci compute instance launch \
   --availability-domain "$AD_NAME" -c "$COMPARTMENT_OCID" \
   --subnet-id "$SUBNET_OCID" --nsg-ids "[\"$NSG_OCID\"]" \
@@ -772,6 +965,9 @@ oci db autonomous-database generate-wallet --autonomous-database-id "$ADB_OCID" 
   --password "$WALLET_PASSWORD" --file ~/.oci/diana-wallet/wallet.zip
 unzip -o ~/.oci/diana-wallet/wallet.zip -d ~/.oci/diana-wallet/
 
+# Reescreve em vez de acumular linhas a cada execução.
+sed -i '/^export \(COMPARTMENT\|VCN\|RT\|IGW\|SUBNET\|NSG\|INSTANCE\|ADB\)_OCID=/d;/^export VM_IP=/d' \
+  ~/.oci/diana-env.sh
 cat >> ~/.oci/diana-env.sh <<EOF
 export COMPARTMENT_OCID="$COMPARTMENT_OCID"
 export VCN_OCID="$VCN_OCID"
@@ -784,7 +980,23 @@ export VM_IP="$VM_IP"
 export ADB_OCID="$ADB_OCID"
 EOF
 
-echo "Pronto. VM em $VM_IP, wallet em ~/.oci/diana-wallet/"
+cat <<FIM
+
+  VM ....... $VM_IP  (ssh ubuntu@$VM_IP)
+  wallet ... ~/.oci/diana-wallet/
+
+  No .env do backend, com o IP POR EXTENSO (o .env não expande variável):
+    MODEL_SERVER_URL=http://$VM_IP:8000/v1
+
+  Aumentar a VM depois (reinicia sozinha):
+    oci compute instance update --instance-id "$INSTANCE_OCID" \\
+      --shape-config '{"ocpus": 4, "memory_in_gbs": 48}' --force
+
+  Parar de ser cobrado:
+    oci compute instance terminate --instance-id "$INSTANCE_OCID" \\
+      --preserve-boot-volume false --force --wait-for-state TERMINATED
+
+FIM
 ```
 
 Guarde-o **fora** deste repositório (por exemplo `~/.oci/provisionar-diana.sh`)
@@ -803,7 +1015,9 @@ Guarde-o **fora** deste repositório (por exemplo `~/.oci/provisionar-diana.sh`)
 | `Invalid db name` | hífen, underscore, ou nome repetido na tenancy | só letras e números, começando por letra |
 | `admin password` rejeitada | contém `"` ou a palavra `admin` | trocar a senha |
 | `ServiceError 404` no compartimento recém-criado | propagação | aguardar ~30s |
-| conecta no NSG mas não na porta | `iptables` da VM | passo [4.6](#46-o-firewall-de-dentro) |
+| `compartmentId is not available` | a variável está **vazia** no shell atual (não é o compartimento) | `source ~/.oci/diana-env.sh` |
+| análise sai como `mock` com `ANALYZER=server` | `.env` com `$VAR` literal → fallback silencioso | IP por extenso; ver [6.1](#61-a-armadilha-que-custa-uma-sessão-de-depuração) |
+| conecta no NSG mas não na porta | `iptables` da VM | passo [4.7](#47-o-firewall-de-dentro) |
 | VM sem internet | rota `0.0.0.0/0` ausente | passo [2.3](#23-rota-de-saída) |
 
 ---

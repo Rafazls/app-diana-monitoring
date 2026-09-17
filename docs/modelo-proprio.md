@@ -316,8 +316,16 @@ Teste antes de virar serviço:
 ./build/bin/llama-server \
   -m ~/models/qwen2.5-3b-instruct-q4_k_m.gguf \
   --host 0.0.0.0 --port 8080 \
-  -c 4096 -t 2
+  -c 4096 -t 2 --parallel 1
 ```
+
+> **`--parallel 1` não é detalhe.** Por padrão o llama.cpp abre 4 slots e aceita
+> 4 requisições ao mesmo tempo — repartindo entre elas os mesmos núcleos. Numa
+> VM de 2 OCPUs medimos **1,57 tok/s** com os 4 slots disputando, contra
+> **3,79 tok/s** com um só. Quatro análises simultâneas ficam todas lentas
+> demais e estouram o timeout do cliente; uma de cada vez termina, e as outras
+> apenas esperam. Paralelismo só ajuda quando há núcleo sobrando, o que não é o
+> caso aqui.
 
 Em outro terminal, **da própria VM** primeiro:
 
