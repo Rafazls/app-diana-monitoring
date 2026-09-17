@@ -56,6 +56,9 @@ export class BatchScheduler {
   private readonly pending = new Map<string, IncomingMessage[]>();
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  /** Tick em andamento. Enquanto existir, um novo tick não começa. */
+  private ticking: Promise<void> | null = null;
+  private puladas = 0;
   private readonly stats: SchedulerStats = {
     batches: 0,
     analyzed: 0,
@@ -97,12 +100,53 @@ export class BatchScheduler {
     this.running = false;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    // Espera o que já estava no ar antes de drenar, senão o drain seria
+    // recusado pela própria trava de reentrância.
+    if (this.ticking) await this.ticking;
     // Não deixa mensagem acumulada para trás.
     await this.tick();
   }
 
-  /** Uma passada: fecha batches pendentes e analisa cada conversa afetada. */
+  /**
+   * Uma passada, sem sobreposição.
+   *
+   * O timer dispara a cada `intervalMs` independentemente de a passada
+   * anterior ter terminado. Quando o analisador demora mais que o intervalo
+   * — modelo em CPU lenta, servidor sob carga — as passadas se acumulam e
+   * disputam o mesmo recurso, o que deixa cada uma ainda mais lenta: um ciclo
+   * que se realimenta até tudo estourar o timeout.
+   *
+   * Pular a janela não perde mensagem: o que chegou continua em `pending` e
+   * entra no próximo batch, apenas mais tarde.
+   */
   async tick(): Promise<void> {
+    if (this.ticking) {
+      this.puladas += 1;
+      if (this.puladas === 1) {
+        logger.warn(
+          "Análise anterior ainda em andamento; esta janela foi adiada. " +
+            "Se persistir, o analisador está mais lento que BATCH_INTERVAL_MS.",
+        );
+      }
+      return;
+    }
+
+    this.ticking = this.executarTick();
+    try {
+      await this.ticking;
+    } finally {
+      this.ticking = null;
+      if (this.puladas > 0) {
+        logger.warn(
+          `${this.puladas} janela(s) adiada(s) enquanto a análise anterior rodava. ` +
+            "As mensagens não foram perdidas — entraram no batch seguinte.",
+        );
+        this.puladas = 0;
+      }
+    }
+  }
+
+  private async executarTick(): Promise<void> {
     const conversasComNovidade = [...this.pending.entries()].filter(([, m]) => m.length > 0);
     if (conversasComNovidade.length === 0) return;
 

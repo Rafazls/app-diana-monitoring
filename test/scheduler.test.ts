@@ -32,6 +32,58 @@ function msg(text: string, author: "child" | "other" = "other", id = text): Inco
 beforeEach(() => build());
 
 describe("BatchScheduler", () => {
+  it("não deixa dois ticks rodarem ao mesmo tempo", async () => {
+    // Analisador que trava até a gente soltar: simula modelo lento.
+    let soltar!: () => void;
+    const travado = new Promise<void>((r) => {
+      soltar = r;
+    });
+    let emVoo = 0;
+    let simultaneosMax = 0;
+
+    const lento = {
+      name: "lento",
+      analyze: async (conversation: Parameters<MockRiskAnalyzer["analyze"]>[0]) => {
+        emVoo += 1;
+        simultaneosMax = Math.max(simultaneosMax, emVoo);
+        await travado;
+        emVoo -= 1;
+        return new MockRiskAnalyzer({
+          now: () => new Date("2026-09-14T12:00:00.000Z"),
+        }).analyze(conversation);
+      },
+    };
+
+    batches = new MemoryBatchStore();
+    alerts = new MemoryAlertStore();
+    scheduler = new BatchScheduler({
+      analyzer: lento,
+      batches,
+      alerts,
+      intervalMs: 60_000,
+      contextBatches: 3,
+    });
+
+    scheduler.accept(msg("primeira"));
+    const primeiro = scheduler.tick();
+
+    // Enquanto o primeiro está preso, mais mensagens chegam e o timer dispara.
+    scheduler.accept(msg("segunda", "other", "m2"));
+    await scheduler.tick();
+    scheduler.accept(msg("terceira", "other", "m3"));
+    await scheduler.tick();
+
+    expect(simultaneosMax).toBe(1);
+
+    soltar();
+    await primeiro;
+
+    // As mensagens das janelas adiadas não se perderam: seguem pendentes.
+    await scheduler.tick();
+    expect(scheduler.getStats().messages).toBe(3);
+    expect(scheduler.getStats().batches).toBe(2);
+  });
+
   it("não cria batch quando não chegou mensagem nova", async () => {
     await scheduler.tick();
     expect(scheduler.getStats().batches).toBe(0);
