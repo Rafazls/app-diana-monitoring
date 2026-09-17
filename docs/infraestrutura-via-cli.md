@@ -566,8 +566,16 @@ não conecta":
 
 ```bash
 # dentro da VM
-sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 8000 -j ACCEPT
+# A posição importa: a cadeia INPUT do Ubuntu na OCI termina com um
+# `REJECT all`, e qualquer ACCEPT depois dele é inerte — a porta continua
+# fechada, sem mensagem de erro nenhuma. Descubra onde o REJECT está em vez
+# de chutar um número.
+POS=$(sudo iptables -L INPUT -n --line-numbers | awk '/REJECT/ {print $1; exit}')
+sudo iptables -I INPUT "${POS:-1}" -m state --state NEW -p tcp --dport 8000 -j ACCEPT
 sudo netfilter-persistent save
+
+# Confira que a regra ficou ANTES do REJECT:
+sudo iptables -L INPUT -n --line-numbers | head -10
 ```
 
 ---
