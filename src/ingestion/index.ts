@@ -26,7 +26,6 @@ export function createSource(env: NodeJS.ProcessEnv = process.env): Conversation
         ...(env.TELEGRAM_CHILD_ID ? { childTelegramId: env.TELEGRAM_CHILD_ID } : {}),
         childName: env.CHILD_NAME ?? "Criança",
         ...(env.TELEGRAM_API_BASE ? { apiBase: env.TELEGRAM_API_BASE } : {}),
-        ...(env.TELEGRAM_IDLE_MS ? { idleMs: Number(env.TELEGRAM_IDLE_MS) } : {}),
       });
     default:
       throw new Error(`INGESTION inválido: "${String(kind)}". Use "fixtures" ou "telegram".`);
