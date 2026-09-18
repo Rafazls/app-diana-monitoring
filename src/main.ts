@@ -23,7 +23,7 @@ import { loadConfig, type AppConfig } from "./config/env.js";
 import { createServer } from "./http/server.js";
 import { createSource } from "./ingestion/index.js";
 import { logger } from "./logger.js";
-import { createAlertStore } from "./store/AlertStore.js";
+import { createAlertStore, hasLifecycle } from "./store/AlertStore.js";
 import { FeedbackStore, SettingsStore } from "./store/settings.js";
 
 function createBatchStore(config: AppConfig): BatchStore {
@@ -74,8 +74,10 @@ async function main(): Promise<void> {
   // O banco pode demorar ou falhar; a API já está no ar quando isso acontece.
   try {
     await batches.init();
+    // STORE=oracle: sem isto o pool nunca abre e todo save() falharia.
+    if (hasLifecycle(alerts)) await alerts.init();
   } catch (err) {
-    logger.error("Falha ao preparar o armazenamento de batches", err);
+    logger.error("Falha ao preparar o armazenamento", err);
     throw err;
   }
 
@@ -92,6 +94,7 @@ async function main(): Promise<void> {
       // Fecha o batch pendente antes de sair: mensagem recebida não se perde.
       .then(() => scheduler.stop())
       .then(() => batches.close())
+      .then(() => (hasLifecycle(alerts) ? alerts.close() : undefined))
       .then(() => app.close())
       .finally(() => process.exit(0));
   };

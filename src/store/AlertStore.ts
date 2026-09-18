@@ -11,6 +11,8 @@ import path from "node:path";
 import type { AlertRecord, AnalysisResult } from "../contracts/index.js";
 import { parseAlertRecord } from "../contracts/index.js";
 import { logger } from "../logger.js";
+import { BaseAlertStore } from "./BaseAlertStore.js";
+import { OracleAlertStore } from "./OracleAlertStore.js";
 
 export interface AlertStore {
   save(result: AnalysisResult, childName: string): Promise<AlertRecord>;
@@ -36,26 +38,6 @@ function toRecord(result: AnalysisResult): AlertRecord {
 }
 
 /** Estado comum: nomes e marcação de lido, que não pertencem ao AlertRecord. */
-abstract class BaseAlertStore {
-  protected readonly names = new Map<string, string>();
-  private readonly readKeys = new Set<string>();
-
-  protected key(conversationId: string, processedAt: string): string {
-    return `${conversationId}|${processedAt}`;
-  }
-
-  childName(conversationId: string): string | undefined {
-    return this.names.get(conversationId);
-  }
-
-  markRead(conversationId: string, processedAt: string): void {
-    this.readKeys.add(this.key(conversationId, processedAt));
-  }
-
-  isRead(conversationId: string, processedAt: string): boolean {
-    return this.readKeys.has(this.key(conversationId, processedAt));
-  }
-}
 
 export class MemoryAlertStore extends BaseAlertStore implements AlertStore {
   private readonly records = new Map<string, AlertRecord>();
@@ -179,5 +161,23 @@ export function createAlertStore(env: NodeJS.ProcessEnv = process.env): AlertSto
   const backend = (env.STORE ?? "memory").toLowerCase();
   if (backend === "file") return new FileAlertStore(env.STATE_DIR ?? "./.state");
   if (backend === "memory") return new MemoryAlertStore();
-  throw new Error(`STORE inválido: "${backend}". Use "memory" ou "file".`);
+  if (backend === "oracle") {
+    return new OracleAlertStore({
+      user: env.ORACLE_USER ?? "",
+      password: env.ORACLE_PASSWORD ?? "",
+      connectString: env.ORACLE_CONNECT_STRING ?? "",
+      ...(env.ORACLE_WALLET_DIR ? { walletDir: env.ORACLE_WALLET_DIR } : {}),
+      ...(env.ORACLE_WALLET_PASSWORD ? { walletPassword: env.ORACLE_WALLET_PASSWORD } : {}),
+    });
+  }
+  throw new Error(`STORE inválido: "${backend}". Use "memory", "file" ou "oracle".`);
 }
+
+/** Lojas que precisam abrir e fechar conexão (hoje: Oracle). */
+export function hasLifecycle(
+  store: AlertStore,
+): store is AlertStore & { init(): Promise<void>; close(): Promise<void> } {
+  return typeof (store as { init?: unknown }).init === "function";
+}
+
+export { BaseAlertStore };
