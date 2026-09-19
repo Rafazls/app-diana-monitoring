@@ -1,16 +1,3 @@
-/**
- * Construção do prompt e validação da resposta do LLM.
- *
- * Duas decisões que moldam este arquivo:
- *
- * 1. O modelo NÃO pontua. Ele só aponta quais sinais viu e em quais mensagens.
- *    A nota sai do Risk Engine, igual para qualquer motor — assim o score não
- *    varia porque o modelo acordou mais dramático hoje.
- *
- * 2. A resposta é validada contra um schema. Modelo que devolve algo fora do
- *    formato tem a resposta rejeitada, não "interpretada na melhor das
- *    hipóteses" — num sistema de proteção infantil, adivinhar é pior que falhar.
- */
 import { z } from "zod";
 import type { Conversation } from "../contracts/index.js";
 import { SIGNAL_WEIGHTS } from "./riskEngine.js";

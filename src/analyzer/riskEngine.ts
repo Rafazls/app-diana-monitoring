@@ -1,14 +1,3 @@
-/**
- * Risk Engine — transforma SINAIS em um veredito.
- *
- * Fica separado do motor que DETECTA os sinais de propósito. A heurística local
- * e o LLM na OCI fazem a mesma coisa: apontam sinais. Quem decide a gravidade,
- * a prioridade e se o responsável precisa ser incomodado é este módulo —
- * determinístico, auditável e igual para os dois.
- *
- * Isso importa porque a nota não pode variar com o humor do modelo. Se um dia o
- * LLM ficar mais verboso, o score não pode subir por causa disso.
- */
 import type {
   AnalysisResult,
   AuditEntry,
@@ -23,7 +12,6 @@ import type {
   RiskPriority,
 } from "../contracts/index.js";
 
-/** Peso de cada tipo de sinal na pontuação final (0–100). */
 export const SIGNAL_WEIGHTS: Record<string, number> = {
   secrecy_request: 18,
   image_request: 26,
@@ -37,7 +25,6 @@ export const SIGNAL_WEIGHTS: Record<string, number> = {
   self_harm: 30,
 };
 
-/** Categoria do contrato correspondente a cada tipo de sinal. */
 export const CATEGORY_OF_SIGNAL: Record<string, RiskCategory> = {
   secrecy_request: "grooming",
   image_request: "image_request",

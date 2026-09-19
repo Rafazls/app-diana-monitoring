@@ -1,23 +1,9 @@
-/**
- * Extração de características de uma conversa (etapa `feature_extraction`).
- *
- * Heurística léxica deliberadamente simples e AUDITÁVEL: cada padrão é um grupo
- * de expressões associado a um comportamento de risco reconhecido na literatura
- * de proteção infantil (pedido de segredo, isolamento, pedido de imagem, etc.).
- *
- * Limite honesto: isto é um *baseline* determinístico para a demo, não um
- * classificador. Ele erra em ironia, gíria e contexto — por isso o resultado
- * sempre acompanha os sinais que o justificaram, para o humano julgar.
- */
 import type { Conversation, ConversationFeatures, MessageAuthor } from "../contracts/index.js";
 
-/** Um padrão de risco: chave da feature + expressões que o indicam. */
 interface Pattern {
   key: keyof ConversationFeatures;
-  /** Rótulo curto usado no sinal derivado. */
   label: string;
   expressions: string[];
-  /** Só conta quando dito pelo interlocutor (não pela criança). */
   onlyFrom?: MessageAuthor;
 }
 

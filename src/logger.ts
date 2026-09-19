@@ -1,9 +1,3 @@
-/**
- * DIANA guardian-api — logger mínimo (espelha o estilo do núcleo).
- *
- * O Fastify traz seu próprio logger (pino); este módulo é para o bootstrap e
- * para código fora do ciclo de request. Formato simples, sem dependências.
- */
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 const LEVEL_ORDER: Record<LogLevel, number> = {

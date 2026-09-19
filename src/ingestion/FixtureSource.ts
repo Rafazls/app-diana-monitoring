@@ -1,9 +1,3 @@
-/**
- * Ingestão de demonstração: reproduz as conversas de exemplo.
- *
- * Faz o backend subir útil em qualquer máquina, sem bot e sem token — e garante
- * que a tela do responsável tenha o que mostrar numa apresentação.
- */
 import { logger } from "../logger.js";
 import { demoConversations } from "./fixtures.js";
 import type { ConversationSource, IncomingMessage } from "./types.js";

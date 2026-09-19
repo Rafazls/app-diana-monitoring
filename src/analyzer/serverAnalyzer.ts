@@ -1,15 +1,3 @@
-/**
- * Motor de análise por servidor de modelo próprio.
- *
- * Fala o dialeto da API da OpenAI (`/v1/chat/completions`), que virou o padrão
- * de fato: llama.cpp server, Ollama, vLLM, LM Studio e TGI aceitam todos esse
- * mesmo formato. A consequência prática é que o projeto não fica preso a
- * fornecedor nenhum — trocar o modelo, ou a máquina onde ele roda, é mudar uma
- * URL.
- *
- * O modelo pode estar numa VM da Oracle, num servidor da escola ou na máquina
- * ao lado. Em qualquer caso a conversa da criança não passa por terceiro.
- */
 import type { AnalysisResult, AuditEntry, Conversation, DetectedSignal } from "../contracts/index.js";
 import { logger } from "../logger.js";
 import { extractFeatures } from "./features.js";
@@ -18,15 +6,11 @@ import { consolidate, SIGNAL_DESCRIPTIONS, SIGNAL_TITLES } from "./riskEngine.js
 import type { RiskAnalyzer } from "./types.js";
 
 export interface ServerAnalyzerConfig {
-  /** Base da API, ex.: http://10.0.0.5:8080/v1 */
   baseUrl: string;
-  /** Nome do modelo conforme o servidor o publica. */
   model: string;
-  /** Opcional — muitos servidores locais não exigem. */
   apiKey?: string;
   timeoutMs?: number;
   maxRetries?: number;
-  /** Pede saída JSON ao servidor, quando ele suporta. */
   jsonMode?: boolean;
   fallback?: RiskAnalyzer;
 }
@@ -38,7 +22,6 @@ interface ChatCompletion {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Erros que vale repetir: fila cheia, serviço subindo, instabilidade de rede. */
 function vaiPassar(status: number | null, err: unknown): boolean {
   if (status === 429 || status === 503 || status === 502 || status === 504) return true;
   const msg = String((err as Error)?.message ?? "").toLowerCase();
@@ -58,7 +41,6 @@ export class ServerRiskAnalyzer implements RiskAnalyzer {
     if (!config.model) {
       throw new Error("ANALYZER=server exige MODEL_SERVER_MODEL (nome do modelo no servidor).");
     }
-    // Aceita a URL com ou sem a barra final, para não punir erro de digitação.
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
     this.timeoutMs = config.timeoutMs ?? 120_000;
     this.maxRetries = config.maxRetries ?? 3;
@@ -72,7 +54,6 @@ export class ServerRiskAnalyzer implements RiskAnalyzer {
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: buildUserPrompt(conversation) },
       ],
-      // Determinismo: a mesma conversa deve produzir o mesmo veredito.
       temperature: 0,
       max_tokens: 800,
       stream: false,

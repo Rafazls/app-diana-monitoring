@@ -1,28 +1,9 @@
-/**
- * `MockRiskAnalyzer` — o motor determinístico que faz a demo rodar sem nuvem.
- *
- * Traduz as características extraídas por `features.ts` em sinais e entrega ao
- * `riskEngine` para pontuar. A divisão é a mesma dos motores de LLM: o
- * analisador APONTA os sinais, o Risk Engine CONSOLIDA — assim heurística e
- * modelo são medidos pela mesma régua, e mudar a régua muda os dois juntos.
- *
- * Determinístico de propósito: a mesma conversa sempre gera o mesmo veredito,
- * então a demo é reproduzível e os testes são estáveis.
- *
- * 🧊 RF-16: nada do texto original entra no resultado. Os sinais carregam
- * apenas ids opacos das mensagens e descrições GERADAS a partir do padrão
- * detectado — o responsável entende o porquê sem ler a conversa do filho.
- */
 import type { AnalysisResult, Conversation, DetectedSignal } from "../contracts/index.js";
 import { extractFeatures, type PatternHit } from "./features.js";
 import { consolidate, SIGNAL_DESCRIPTIONS, SIGNAL_WEIGHTS } from "./riskEngine.js";
 import type { RiskAnalyzer } from "./types.js";
 
-/**
- * Chave da característica (como `features.ts` a nomeia) -> tipo do sinal (como
- * o contrato e a interface o nomeiam). São vocabulários diferentes de
- * propósito: um descreve o padrão léxico, o outro o que o responsável vê.
- */
+
 const SIGNAL_TYPE: Record<string, string> = {
   secrecyRequests: "secrecy_request",
   imageRequests: "image_request",
@@ -88,9 +69,6 @@ export class MockRiskAnalyzer implements RiskAnalyzer {
       modelVersion: "0.1.0",
       environment: "mock",
       processedAt,
-      // Etapas que só a heurística executa. Sem elas a trilha diria apenas
-      // "recebido -> pontuado", escondendo de onde os sinais vieram — e a
-      // auditoria existe justamente para responder isso.
       extraAudit: [
         {
           timestamp: processedAt,

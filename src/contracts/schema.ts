@@ -1,17 +1,3 @@
-/**
- * DIANA guardian-api — schema zod do contrato (`AnalysisResult`/`AlertRecord`).
- *
- * Espelha `contracts/types.ts` (o contrato portado do núcleo). É a validação de
- * ENTRADA das fontes de disco/OCI (§10 da análise): um registro lido que não
- * casa com o contrato é rejeitado/logado — nunca propagado à borda.
- *
- * Tolerante a extensões: `.parse()` descarta chaves desconhecidas (o núcleo
- * pode adicionar campos), e a projeção de resumo (`domain/summarize.ts`) usa
- * allowlist explícita — então nada fora do contrato chega à resposta.
- *
- * Regra de sincronização: ao estender o contrato (ex.: `RiskPriority` ganhar
- * `critical`), atualizar este schema junto com `types.ts`.
- */
 import { z } from "zod";
 import type { AlertRecord } from "./alertRecord.js";
 import type { AnalysisResult } from "./types.js";

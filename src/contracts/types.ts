@@ -1,15 +1,3 @@
-/**
- * DIANA — Tipos do domínio de análise de risco (contrato compartilhado).
- *
- * Portado de `app-diana-monitoring-lading-page/src/ml/types.ts` (protótipo).
- * Esta camada descreve o CONTRATO entre o pipeline de análise e o restante do
- * ecossistema DIANA: a "linguagem comum" `Conversation` -> `AnalysisResult`.
- *
- * Fica LOCAL neste repositório até existir o pacote `@diana/contracts`
- * (previsto para `app-diana-llm-analyzer`). Em caso de divergência, a
- * descrição canônica em `docs/contracts.md` prevalece.
- */
-
 export type MessageAuthor = "child" | "other";
 
 export interface ConversationMessage {

@@ -1,18 +1,3 @@
-/**
- * Ingestão via Telegram Bot API (long polling em `getUpdates`).
- *
- * Long polling em vez de webhook porque a aplicação precisa rodar em qualquer
- * máquina, sem domínio público nem HTTPS. Trocar por webhook depois é
- * localizado: só esta classe muda.
- *
- * ⚠️ Escopo do que o bot vê: a Bot API só entrega ao bot as mensagens de chats
- * em que ele foi adicionado — e, em grupos, apenas as dirigidas a ele, salvo se
- * o modo privacidade for desligado pelo dono do bot. Não existe, e este código
- * não tenta, leitura de conversas alheias.
- *
- * Esta classe só ENTREGA mensagens. Agrupar em batches e decidir quando
- * analisar é responsabilidade do scheduler.
- */
 import { logger } from "../logger.js";
 import type { ConversationSource, IncomingMessage } from "./types.js";
 
@@ -41,14 +26,8 @@ interface TelegramUpdate {
 
 export interface TelegramSourceConfig {
   token: string;
-  /**
-   * Id numérico da CRIANÇA no Telegram. Mensagens deste id viram `child`; as
-   * demais, `other`. Sem ele não há como saber quem falou o quê, e vários
-   * padrões — que só contam vindos do interlocutor — deixam de ser detectados.
-   */
   childTelegramId?: string;
   childName: string;
-  /** Base da Bot API. Trocável para apontar a um simulador local. */
   apiBase?: string;
 }
 

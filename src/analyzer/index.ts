@@ -1,10 +1,3 @@
-/**
- * Seleção do motor de análise por ambiente.
- *
- * `mock` roda em qualquer máquina, sem credencial; `oci` usa o modelo na nuvem
- * e mantém a heurística como reserva — se a nuvem cair, a conversa ainda é
- * analisada. Trocar de motor é mudar uma variável.
- */
 import { MockRiskAnalyzer } from "./mockAnalyzer.js";
 import { OciRiskAnalyzer, type ModelFamily } from "./ociAnalyzer.js";
 import { ServerRiskAnalyzer } from "./serverAnalyzer.js";
@@ -19,7 +12,6 @@ export { ServerRiskAnalyzer, type ServerAnalyzerConfig } from "./serverAnalyzer.
 
 export type AnalyzerKind = "mock" | "server" | "oci";
 
-/** A chave privada pode vir em uma linha só, com \n escapado (formato .env). */
 function normalizePrivateKey(raw: string): string {
   return raw.includes("\\n") ? raw.replace(/\\n/g, "\n") : raw;
 }

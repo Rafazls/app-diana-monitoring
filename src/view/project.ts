@@ -1,15 +1,3 @@
-/**
- * Projeção do que o backend sabe para o que a tela mostra.
- *
- * Aqui mora a garantia central do produto: o responsável recebe a ANÁLISE do
- * risco, nunca a conversa. Duas defesas independentes:
- *
- *  1. ALLOWLIST — cada campo entregue é escolhido explicitamente. Um campo novo
- *     no contrato não vaza por descuido, porque simplesmente não é copiado.
- *  2. ASSERÇÃO — antes de serializar, varre o payload atrás de chaves de
- *     conteúdo bruto. Se o contrato derivar no futuro, a serialização falha em
- *     vez de expor a conversa.
- */
 import type {
   AlertRecord,
   AnalysisResult,

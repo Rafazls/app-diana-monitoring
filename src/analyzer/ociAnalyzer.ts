@@ -1,18 +1,3 @@
-/**
- * Motor de análise usando OCI Generative AI.
- *
- * O modelo INTERPRETA (aponta quais sinais viu e onde); o Risk Engine
- * PONTUA. Essa divisão é o que mantém a nota estável e auditável mesmo
- * trocando de modelo.
- *
- * Autenticação, nos dois ambientes previstos:
- *   - local            -> chaves de API no .env (SimpleAuthenticationDetails)
- *   - Container Instance -> instance principal, sem credencial nenhuma
- *
- * Se o modelo falhar (indisponível, resposta fora do formato, timeout), a
- * análise NÃO é abandonada: cai para a heurística local. Perder um alerta por
- * instabilidade de nuvem seria a pior falha possível neste sistema.
- */
 import * as genai from "oci-generativeaiinference";
 import * as common from "oci-common";
 import type { AnalysisResult, AuditEntry, Conversation, DetectedSignal } from "../contracts/index.js";
@@ -26,20 +11,16 @@ export type ModelFamily = "cohere" | "generic";
 
 export interface OciAnalyzerConfig {
   compartmentId: string;
-  /** OCID do modelo, ou um alias como "cohere.command-r-plus". */
   modelId: string;
   region: string;
   family: ModelFamily;
-  /** Credenciais de API (local). Ausentes => tenta instance principal. */
   tenancyId?: string;
   userId?: string;
   fingerprint?: string;
   privateKey?: string;
   passphrase?: string;
   timeoutMs?: number;
-  /** Tentativas extras quando a OCI responde 429. */
   maxRetries?: number;
-  /** Motor de reserva quando a nuvem falha. */
   fallback?: RiskAnalyzer;
 }
 
@@ -66,14 +47,6 @@ function buildAuthProvider(
   return new common.InstancePrincipalsAuthenticationDetailsProviderBuilder().build();
 }
 
-/**
- * Identifica throttling da OCI (HTTP 429).
- *
- * A Generative AI limita a taxa de requisições POR TENANCY, e o limite é
- * compartilhado com qualquer outra coisa que use o serviço na conta. Num
- * sistema que dispara a cada batch, esbarrar nisso é questão de tempo — não
- * é sinal de que algo está quebrado.
- */
 function isThrottled(err: unknown): boolean {
   const e = err as { statusCode?: number; status?: number; message?: string };
   if (e?.statusCode === 429 || e?.status === 429) return true;
@@ -189,15 +162,6 @@ export class OciRiskAnalyzer implements RiskAnalyzer {
       });
 
       const inicio = Date.now();
-
-      /**
-       * Throttling merece nova tentativa; os demais erros, não.
-       *
-       * Cair direto na heurística a cada 429 degradaria a análise por um
-       * problema momentâneo de fila. O espaçamento cresce a cada tentativa
-       * (1s, 2s, 4s) com um jitter, para várias conversas que falharam juntas
-       * não voltarem todas no mesmo instante e causarem novo pico.
-       */
       let resposta: unknown;
       let tentativa = 0;
       for (;;) {

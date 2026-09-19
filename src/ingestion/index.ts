@@ -1,8 +1,3 @@
-/**
- * Seleção da fonte de conversas por ambiente.
- *
- * `fixtures` (padrão) roda sem credencial; `telegram` liga o bot de verdade.
- */
 import { FixtureSource } from "./FixtureSource.js";
 import { TelegramSource } from "./TelegramSource.js";
 import type { ConversationSource } from "./types.js";

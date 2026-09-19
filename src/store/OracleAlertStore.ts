@@ -1,13 +1,3 @@
-/**
- * Alertas no Oracle Database (Autonomous Database ou Base Database).
- *
- * A tabela `diana_alerts` já era criada pelo `OracleBatchStore` desde o início,
- * mas nada escrevia nela: `createAlertStore` só conhecia `memory` e `file`, de
- * modo que `STORE=oracle` passava na validação do env e derrubava o processo no
- * boot. Esta classe fecha essa lacuna.
- *
- * Mesmo modo THIN do `OracleBatchStore`: sem Oracle Instant Client.
- */
 import oracledb from "oracledb";
 import { alertRecordSchema, type AlertRecord, type AnalysisResult } from "../contracts/index.js";
 import { logger } from "../logger.js";

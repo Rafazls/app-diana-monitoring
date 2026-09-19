@@ -1,10 +1,3 @@
-/**
- * Preferências do responsável e feedback sobre os alertas.
- *
- * Documento único global: no MVP há um responsável, sem multiusuário (isso só
- * faz sentido com autenticação, que é assunto da Fase 2). Em memória — perder
- * preferências num reinício é aceitável; perder um alerta não seria.
- */
 import type { FeedbackRecord, GuardianSettings } from "../view/types.js";
 
 /**
