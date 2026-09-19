@@ -1,12 +1,3 @@
-/**
- * Configuração do backend, validada por zod.
- *
- * Todo default roda sem credencial nenhuma: fixtures + heurística local +
- * memória. Ligar Telegram, OCI ou Oracle é mudar variável, nunca código.
- *
- * A validação falha no BOOT quando falta algo essencial. Subir um serviço que
- * conecta mas nunca analisa é a pior forma de errar aqui: parece que funciona.
- */
 import { z } from "zod";
 
 const schema = z.object({

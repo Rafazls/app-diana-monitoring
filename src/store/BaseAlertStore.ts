@@ -1,12 +1,3 @@
-/**
- * Estado que todo AlertStore compartilha: índice de nomes e marcação de
- * leitura, ambos em memória.
- *
- * Mora num módulo separado de propósito. O `OracleAlertStore` herda daqui e
- * o `createAlertStore` (em AlertStore.ts) o constrói — se a base vivesse lá,
- * o ciclo de importação estouraria em tempo de execução com "Cannot access
- * 'BaseAlertStore' before initialization", que o TypeScript não acusa.
- */
 export abstract class BaseAlertStore {
   protected readonly names = new Map<string, string>();
   private readonly readKeys = new Set<string>();

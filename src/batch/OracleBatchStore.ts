@@ -1,16 +1,3 @@
-/**
- * Batches no Oracle Database (Autonomous Database ou Base Database).
- *
- * Usa o modo THIN do node-oracledb: não exige Oracle Instant Client instalado,
- * o que mantém a imagem do container pequena e o setup local trivial.
- *
- * Conexão:
- *   - com wallet (mTLS)  -> ORACLE_WALLET_DIR apontando para a pasta extraída
- *   - sem wallet (TLS)   -> só a connect string, se o ADB permitir
- *
- * As tabelas são criadas na primeira execução. Preferi isso a exigir um script
- * manual: a aplicação sobe sozinha num container novo, sem passo esquecido.
- */
 import oracledb from "oracledb";
 import { logger } from "../logger.js";
 import type { Batch, BatchStore } from "./types.js";
@@ -26,7 +13,6 @@ export interface OracleConfig {
   poolMax?: number;
 }
 
-/** DDL idempotente: só cria se ainda não existir. */
 const DDL_BATCHES = `
 DECLARE v_existe NUMBER;
 BEGIN

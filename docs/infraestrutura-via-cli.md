@@ -4,20 +4,6 @@ Todo o provisionamento da DIANA — compartimento, rede, instâncias e banco de
 dados — executado pelo terminal, na região **Brazil East (São Paulo)**
 (`sa-saopaulo-1`).
 
-O guia [`provisionamento-oci.md`](provisionamento-oci.md) faz o mesmo caminho
-clicando no console. Os dois documentos não competem: o console ensina, porque
-mostra os campos com nome e ajuda ao lado; a CLI **repete**. Depois que você
-entendeu o que cada recurso é, a CLI é o que permite derrubar tudo no fim do
-mês e recriar igual na semana seguinte, sem redescobrir qual checkbox estava
-marcado.
-
-> **Sobre as fontes.** Os comandos abaixo foram conferidos na [referência
-> oficial da OCI CLI](https://docs.oracle.com/en-us/iaas/tools/oci-cli/latest/oci_cli_docs/).
-> O artigo do Medium que você indicou responde **403** para acesso automatizado,
-> então nada aqui foi copiado dele — se ele divergir em algum ponto, a
-> referência oficial é a que vale, porque acompanha a versão da CLI que você
-> acabou de instalar.
-
 ---
 
 ## Índice
@@ -513,36 +499,6 @@ Confirme o que ficou valendo:
 oci compute instance get --instance-id "$INSTANCE_OCID" \
   --query 'data."shape-config"' --output table
 ```
-
-#### Quanto adianta, na prática
-
-Medições deste projeto, mesmo modelo (Qwen2.5-3B Q4_K_M) e mesmo prompt:
-
-| Máquina | Latência por análise | tok/s |
-|---|---|---|
-| i5-1135G7, 4 núcleos, **AVX512-VNNI** | **~11s** | 11,3 |
-| A2.Flex, 2 OCPU (ARM) | 35–59s | 2,3–3,8 |
-
-A diferença não é o número de núcleos — é a instrução vetorial. O AVX512-VNNI
-faz multiplicação de inteiros de 8 bits em hardware, que é exatamente a
-operação de um modelo quantizado. O Ampere não tem equivalente, então dobrar
-OCPUs dobra a velocidade na melhor das hipóteses, enquanto o x86 já começa
-várias vezes à frente.
-
-Consequência para o dimensionamento: **não escolha o tamanho pela RAM.** O
-modelo de 3B ocupa menos de 3 GB; a memória sobra em qualquer configuração. Quem
-manda no tempo de resposta é OCPU, e mesmo assim com retorno decrescente.
-
-> **Custo sobe junto e na hora.** O A2 é cobrado por OCPU/hora: dobrar OCPUs
-> dobra a conta. Se o objetivo é uma demonstração com data marcada, é mais
-> barato aumentar um dia antes e voltar a reduzir depois — o comando é o mesmo,
-> com o número menor.
-
-Se depois de aumentar a análise ainda não couber no `BATCH_INTERVAL_MS`, o
-ajuste honesto é aumentar o intervalo (veja `.env` no passo 6) em vez de
-continuar comprando OCPU: um alerta 60s mais lento é melhor que uma fila que
-nunca esvazia.
-
 ---
 
 ### 4.6 IP público e primeiro acesso
@@ -664,31 +620,7 @@ concorrência.
 Com tudo provisionado, resta preencher o `.env` do backend — que o `.gitignore`
 já protege, e que é o único lugar onde as credenciais devem existir.
 
-### 6.1 A armadilha que custa uma sessão de depuração
-
-**O `.env` não expande variável de shell.** Quem lê esse arquivo é o Node, não o
-bash. Estas duas linhas estão erradas:
-
-```bash
-MODEL_SERVER_URL=http://$VM_IP:8000/v1        # vira a string com o cifrão
-ORACLE_WALLET_DIR=$HOME/.oci/diana-wallet     # idem
-```
-
-O que torna isso pior que um erro comum: o `ServerRiskAnalyzer` tem
-`fallback: MockRiskAnalyzer`. Com a URL inválida, a aplicação **não quebra** —
-ela cai calada na heurística local, continua gerando alertas, e você passa a
-avaliar um modelo que nunca foi consultado.
-
-Escreva os valores por extenso. Para conferir o que a aplicação realmente lê:
-
-```bash
-node --env-file-if-exists=.env \
-  -e 'console.log(process.env.MODEL_SERVER_URL, process.env.ORACLE_WALLET_DIR)'
-```
-
-Se aparecer um `$` na saída, não está resolvido.
-
-### 6.2 Como fica o arquivo
+### 6.1 Como fica o arquivo
 
 Os valores abaixo são exemplos — troque o IP, as senhas e o nome do modelo
 pelos seus.
@@ -821,26 +753,7 @@ oci network vcn list -c "$COMPARTMENT_OCID" --output table \
   --query 'data[].{nome:"display-name",cidr:"cidr-block"}'
 ```
 
-### 7.2 Custo
-
-```bash
-oci budgets budget list -c "$TENANCY_OCID" --output table 2>/dev/null \
-  || echo "sem budget configurado"
-```
-
-Com a VM em `VM.Standard.A2.Flex`, **há um recurso cobrado rodando de
-propósito** — não é mais um caso de "passou da cota sem perceber". Os dois itens
-que contam a hora aqui são a instância e o boot volume dela; o Autonomous
-Database em Always Free não entra.
-
-Crie o alerta de orçamento no console (*Billing & Cost Management* → *Budgets*)
-**antes** de subir a instância. Um alerta criado depois de uma VM esquecida
-ligada por três semanas avisa sobre uma conta que já existe.
-
-A instância parada continua cobrando o armazenamento. Quem para o relógio de
-verdade é o `terminate` do passo 7.3.
-
-### 7.3 Derrubar
+### 7.2 Derrubar
 
 A ordem importa — a OCI recusa apagar algo que ainda é referenciado:
 

@@ -1,19 +1,3 @@
-/**
- * Bootstrap do backend da DIANA.
- *
- * Monta a cadeia completa e sobe o servidor:
- *
- *   fonte (Telegram|fixtures)
- *        ↓ mensagem a mensagem
- *   BatchScheduler        a cada N segundos, fecha um batch e PERSISTE
- *        ↓ últimos 3 batches como contexto
- *   analisador (OCI|heurística)
- *        ↓ veredito
- *   alertas → API → app do responsável
- *
- * A API sobe antes da ingestão: o app do responsável não deve esperar a nuvem
- * nem o banco para abrir.
- */
 import { createAnalyzer } from "./analyzer/index.js";
 import { MemoryBatchStore } from "./batch/MemoryBatchStore.js";
 import { OracleBatchStore } from "./batch/OracleBatchStore.js";

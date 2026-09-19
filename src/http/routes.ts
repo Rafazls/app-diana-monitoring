@@ -1,10 +1,3 @@
-/**
- * Rotas que o app do responsável consome.
- *
- * Cada rota devolve exatamente a forma que a tela espera — o front não faz
- * conta nem remonta dado. Erros são previsíveis: 400 entrada inválida,
- * 404 alerta inexistente, 503 fonte indisponível.
- */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AlertRecord } from "../contracts/index.js";
@@ -52,10 +45,6 @@ function byNewest(a: AlertRecord, b: AlertRecord): number {
   return b.processedAt.localeCompare(a.processedAt);
 }
 
-/**
- * Projeta a lista, pulando (e logando) o registro que falhar. Um alerta
- * problemático não pode derrubar a lista inteira do responsável.
- */
 function projectList(records: AlertRecord[], store: AlertStore): AlertItem[] {
   const items: AlertItem[] = [];
   for (const record of records) {

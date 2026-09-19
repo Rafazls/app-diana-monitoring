@@ -1,9 +1,3 @@
-/**
- * Servidor HTTP do backend.
- *
- * CORS liberado por padrão porque o front roda em outra origem durante o
- * desenvolvimento (5173 -> 8080). Em produção, restrinja via CORS_ORIGINS.
- */
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
 import { timingSafeEqual } from "node:crypto";
@@ -27,11 +21,7 @@ export function createServer(config: AppConfig, deps: Deps): FastifyInstance {
     origin: config.corsOrigins.includes("*") ? true : config.corsOrigins,
   });
 
-  /**
-   * 🧊 Chave simples, e nada além disso: é um freio de demonstração, não
-   * controle de acesso. Não há identidade nem autorização por responsável —
-   * isso exige OIDC/IAM, que é assunto da Fase 2.
-   */
+
   if (config.apiKey) {
     app.addHook("onRequest", (request, reply, done) => {
       if (PUBLIC_PATHS.has(request.routeOptions.url ?? request.url)) return done();

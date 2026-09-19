@@ -23,6 +23,172 @@ Conversa conv-benign-01 analisada e descartada (score 0, sem risco relevante).
 A última linha é de propósito: **um sistema que alerta sobre tudo é tão inútil
 quanto um que não alerta sobre nada.**
 
+## Definição oficial da DIANA
+
+### O que é a DIANA?
+
+A **DIANA** é uma plataforma de proteção digital infantil baseada em análise
+contextual de conversas. Ela:
+
+1. captura periodicamente dados de uma fonte de conversa (hoje, o Telegram);
+2. organiza e protege esses dados, sem expor o conteúdo bruto a ninguém além
+   do próprio pipeline de análise;
+3. reconstrói uma janela temporal de contexto a partir dos lotes de mensagens
+   recentes de uma conversa;
+4. interpreta padrões comportamentais nessa janela;
+5. identifica sinais associados a categorias de risco (aliciamento, ameaça,
+   pedido de imagem, autolesão, entre outras);
+6. consolida esses sinais em uma pontuação de risco (score, nível e
+   prioridade);
+7. gera um **alerta estruturado** quando há evidência suficiente para
+   justificar a atenção do responsável.
+
+Este repositório (`app-diana-monitoring`) implementa os passos 1–7: ingestão,
+análise, consolidação e a API que serve o resultado. A tela onde o
+responsável consome esse alerta vive em
+[`app-diana-guardian-web`](https://github.com/Rafazls/app-diana-guardian-web).
+
+### O que a DIANA não é?
+
+A DIANA não é:
+
+- um aplicativo de espionagem;
+- um sistema que mostra ao responsável a conversa inteira — a regra RF-16
+  (abaixo) impede isso por construção;
+- um filtro baseado exclusivamente em palavras proibidas;
+- um mecanismo que classifica cada mensagem isoladamente, sem contexto;
+- um sistema que rotula uma pessoa como criminosa;
+- uma afirmação de que um abuso ocorreu só porque uma classificação
+  probabilística disparou — todo alerta carrega os sinais que o justificam, e
+  a decisão final é sempre de um humano.
+
+### Arquitetura geral
+
+A DIANA é composta por dois repositórios que se comunicam por HTTP:
+
+```
+┌──────────────────────── app-diana-monitoring (este repositório) ────────────────────────┐
+│                                                                                            │
+│  Telegram / fixtures → ingestion → BatchScheduler → analyzer → AlertStore                │
+│                                          │                │                               │
+│                                 (janela de contexto)  (mock | server | oci)                │
+│                                                                       │                    │
+│                                                                API HTTP Fastify :8080       │
+└────────────────────────────────────────────────────────────────────┬────────────────────┘
+                                                                       │ REST (/dashboard, /alerts, /settings…)
+                                                                       ▼
+                                                     app-diana-guardian-web (React + Vite)
+                                                     tela do responsável — só a análise, nunca a conversa
+```
+
+- **Ingestão** (`src/ingestion`) — lê mensagens do Telegram via long polling
+  ou reproduz conversas de exemplo (`FixtureSource`), sem qualquer rede.
+- **Batch/scheduler** (`src/batch`) — acumula mensagens por conversa e, a cada
+  `BATCH_INTERVAL_MS`, fecha a janela, monta o contexto das últimas
+  `CONTEXT_BATCHES` janelas e dispara a análise, com proteção contra ticks
+  sobrepostos.
+- **Analyzer** (`src/analyzer`) — três motores plugáveis atrás da mesma
+  interface (heurística, servidor de modelo próprio ou OCI Generative AI) —
+  ver seção seguinte.
+- **Store** (`src/store`) — persiste alertas e batches em memória, arquivo ou
+  Oracle Autonomous Database.
+- **API HTTP** (`src/http`) — expõe `/health`, `/dashboard`, `/alerts`,
+  `/alerts/:id`, `/alerts/:id/feedback` e `/settings`, sempre projetando a
+  saída por allowlist (RF-16).
+
+### Tecnologias, linguagens e frameworks
+
+- **Linguagem**: TypeScript em modo estrito, Node.js ≥ 22, ESM.
+- **Servidor HTTP**: [Fastify 4](https://fastify.dev/) + `@fastify/cors`.
+- **Validação**: [Zod 3](https://zod.dev/) — schema de ambiente, contratos
+  HTTP e schema da resposta do LLM.
+- **SDKs Oracle Cloud**: `oci-common`, `oci-generativeaiinference` (OCI
+  Generative AI) e `oracledb` (Oracle Autonomous Database).
+- **Testes**: [Vitest](https://vitest.dev/).
+- **Sem framework de front-end neste repositório** — a interface fica em
+  [`app-diana-guardian-web`](https://github.com/Rafazls/app-diana-guardian-web)
+  (React 18 + Vite + TypeScript + Tailwind CSS).
+
+### APIs, modelos de Inteligência Artificial e bases de dados
+
+O motor de análise (`ANALYZER`) é plugável entre três implementações, todas
+atrás da mesma interface e do mesmo motor de pontuação (`riskEngine.ts`):
+
+| `ANALYZER` | Motor | Uso |
+|---|---|---|
+| `mock` (padrão) | Heurística determinística em português (regex/palavras-chave sobre 10 tipos de sinal) | Demonstração, testes, ambiente sem custo e sem rede |
+| `server` | Qualquer API **compatível com OpenAI** (`POST {MODEL_SERVER_URL}/chat/completions`) — llama.cpp, Ollama, vLLM, LM Studio, TGI | Modelo próprio, local ou auto-hospedado (recomendado: **Qwen2.5-3B-Instruct**, quantizado) |
+| `oci` | [OCI Generative AI Inference](https://www.oracle.com/artificial-intelligence/generative-ai/) (famílias `cohere` ou `generic`) | Modelo gerenciado na Oracle Cloud |
+
+Todas as respostas do LLM passam por um schema Zod estrito (somente JSON,
+catálogo fixo de sinais) antes de virar pontuação — nunca texto livre chega
+ao responsável.
+
+**Bases de dados / armazenamento** (`STORE`):
+
+| `STORE` | Onde fica |
+|---|---|
+| `memory` (padrão) | Em processo — perdido a cada reinício |
+| `file` | JSON em `STATE_DIR` |
+| `oracle` | **Oracle Autonomous Database** (`oracledb`, com suporte a wallet/mTLS) — tabelas `diana_alerts` e `diana_batches`, criadas automaticamente no primeiro boot |
+
+### Executando tudo localmente (LLM em Docker → backend → front-end)
+
+O quickstart no topo deste README já sobe o backend sozinho com o motor
+`mock` (sem IA, sem Docker). Para rodar a solução completa — com um modelo de
+linguagem de verdade e a tela do responsável — localmente:
+
+**1. Suba um modelo compatível com OpenAI via Docker** (pule se for usar
+`ANALYZER=mock`):
+
+```bash
+docker run -d --name diana-llm -p 11434:11434 -v diana-ollama:/root/.ollama ollama/ollama
+docker exec diana-llm ollama pull qwen2.5:3b-instruct
+```
+
+Isso expõe um endpoint compatível com OpenAI em `http://localhost:11434/v1`.
+Para hospedar em VM própria (inclusive no Always Free da Oracle) em vez de
+local, veja [`docs/modelo-proprio.md`](docs/modelo-proprio.md), que também
+cobre `llama.cpp`.
+
+**2. Suba este backend apontando para o modelo:**
+
+```bash
+git clone git@github.com:Rafazls/app-diana-monitoring.git
+cd app-diana-monitoring
+npm install
+cp .env.example .env
+```
+
+No `.env`, defina:
+
+```ini
+ANALYZER=server
+MODEL_SERVER_URL=http://localhost:11434/v1
+MODEL_SERVER_MODEL=qwen2.5:3b-instruct
+```
+
+```bash
+npm run build && npm start   # http://localhost:8080
+```
+
+**3. Suba o front-end** (repositório separado):
+
+```bash
+git clone git@github.com:Rafazls/app-diana-guardian-web.git
+cd app-diana-guardian-web
+npm install
+npm run dev   # http://localhost:5173, já com proxy para localhost:8080
+```
+
+**4. Conecte uma fonte de conversa de verdade (opcional):** siga
+[Ligando o Telegram de verdade](#ligando-o-telegram-de-verdade) abaixo, ou
+continue com as conversas de exemplo (`INGESTION=fixtures`, padrão) para
+testar a integração ponta a ponta sem depender do Telegram.
+
+Para persistir os alertas entre reinícios sem depender de um banco Oracle,
+use `STORE=file` em vez do padrão `STORE=memory`.
+
 ## O caminho de uma conversa
 
 ```
@@ -154,10 +320,6 @@ Também cobre o caminho de treinamento.
 
 ## Provisionar na Oracle
 
-O passo a passo para criar os serviços na região de São Paulo — compartimento,
-Generative AI, chaves, Autonomous Database e Container Instance — está em
-[`docs/provisionamento-oci.md`](docs/provisionamento-oci.md).
-
 Para provisionar o mesmo conjunto pelo terminal — compartimento, VCN, sub-rede,
 NSG, instância e Autonomous Database, com script de criação e de teardown —
 veja [`docs/infraestrutura-via-cli.md`](docs/infraestrutura-via-cli.md).
@@ -173,8 +335,6 @@ npm test        # só os testes
 
 ## Limites honestos
 
-- **`ANALYZER=oci` não está implementado.** Existe como interface e falha no
-  boot se escolhido — nunca silenciosamente, nem com resultado inventado.
 - **A heurística é um baseline, não um classificador.** Casa expressões
   conhecidas; erra em ironia, gíria e contexto. Por isso todo alerta carrega os
   sinais que o justificaram: a decisão final é de um humano.

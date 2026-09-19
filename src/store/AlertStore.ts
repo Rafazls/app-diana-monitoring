@@ -1,11 +1,3 @@
-/**
- * Guarda dos alertas gerados.
- *
- * `memory` basta para a demo e para o bot rodando em um processo só; `file`
- * sobrevive a reinício, gravando em `<STATE_DIR>/alerts/<conversa>/<data>.json`
- * — o mesmo layout que o núcleo usaria no Object Storage, então trocar o
- * backend de persistência não muda quem lê.
- */
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { AlertRecord, AnalysisResult } from "../contracts/index.js";

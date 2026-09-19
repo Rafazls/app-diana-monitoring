@@ -1,16 +1,3 @@
-/**
- * Conversas de demonstração — o "mundo real" simulado que alimenta a demo.
- *
- * Substituem a ingestão do Telegram para que a demo rode sem bot, sem token e
- * sem dados de ninguém. Os diálogos são FICTÍCIOS e foram escritos para
- * exercitar os padrões que o analisador precisa reconhecer (pedido de segredo,
- * isolamento, pedido de imagem, chantagem, hostilidade, sofrimento emocional),
- * de forma ilustrativa e sem conteúdo gráfico.
- *
- * Inclui de propósito uma conversa INOFENSIVA: um sistema que alerta sobre tudo
- * é tão inútil quanto um que não alerta sobre nada — a demo precisa mostrar o
- * filtro funcionando.
- */
 import type { Conversation, ConversationMessage } from "../contracts/index.js";
 
 /** Monta as mensagens alternando horários em minutos a partir de `startedAt`. */

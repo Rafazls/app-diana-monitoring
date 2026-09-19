@@ -1,16 +1,3 @@
-/**
- * O relógio do monitoramento.
- *
- * A cada `intervalMs`, verifica se chegou mensagem nova. Se chegou:
- *   1. fecha um BATCH e PERSISTE  (antes de analisar — falha na análise não
- *      pode custar a mensagem);
- *   2. recupera os últimos `contextBatches` batches daquela conversa;
- *   3. analisa tudo junto, porque o padrão só aparece no contexto;
- *   4. se o veredito pedir atenção, vira alerta para o responsável.
- *
- * Conversa sem novidade não gera batch nem chamada ao modelo — num motor pago
- * por token, analisar silêncio é dinheiro jogado fora.
- */
 import { randomUUID } from "node:crypto";
 import type { RiskAnalyzer } from "../analyzer/index.js";
 import type { Conversation, ConversationMessage } from "../contracts/index.js";
@@ -18,7 +5,6 @@ import { logger } from "../logger.js";
 import type { AlertStore } from "../store/AlertStore.js";
 import type { Batch, BatchStore } from "./types.js";
 
-/** Mensagem recém-chegada, antes de virar batch. */
 export interface IncomingMessage {
   conversationId: string;
   childName: string;
@@ -39,9 +25,7 @@ export interface SchedulerOptions {
   analyzer: RiskAnalyzer;
   batches: BatchStore;
   alerts: AlertStore;
-  /** De quanto em quanto tempo procurar novidade. */
   intervalMs: number;
-  /** Quantos batches compõem a janela de contexto. */
   contextBatches: number;
 }
 
@@ -52,11 +36,9 @@ function dayKey(date: Date): string {
 }
 
 export class BatchScheduler {
-  /** Mensagens aguardando o próximo fechamento de batch, por conversa. */
   private readonly pending = new Map<string, IncomingMessage[]>();
   private timer: NodeJS.Timeout | null = null;
   private running = false;
-  /** Tick em andamento. Enquanto existir, um novo tick não começa. */
   private ticking: Promise<void> | null = null;
   private puladas = 0;
   private readonly stats: SchedulerStats = {
@@ -74,7 +56,6 @@ export class BatchScheduler {
     return { ...this.stats, messagesByDay: { ...this.stats.messagesByDay } };
   }
 
-  /** Recebe uma mensagem da fonte. Não analisa — só acumula. */
   accept(incoming: IncomingMessage): void {
     const lista = this.pending.get(incoming.conversationId) ?? [];
     lista.push(incoming);
@@ -100,25 +81,11 @@ export class BatchScheduler {
     this.running = false;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    // Espera o que já estava no ar antes de drenar, senão o drain seria
-    // recusado pela própria trava de reentrância.
     if (this.ticking) await this.ticking;
-    // Não deixa mensagem acumulada para trás.
     await this.tick();
   }
 
-  /**
-   * Uma passada, sem sobreposição.
-   *
-   * O timer dispara a cada `intervalMs` independentemente de a passada
-   * anterior ter terminado. Quando o analisador demora mais que o intervalo
-   * — modelo em CPU lenta, servidor sob carga — as passadas se acumulam e
-   * disputam o mesmo recurso, o que deixa cada uma ainda mais lenta: um ciclo
-   * que se realimenta até tudo estourar o timeout.
-   *
-   * Pular a janela não perde mensagem: o que chegou continua em `pending` e
-   * entra no próximo batch, apenas mais tarde.
-   */
+
   async tick(): Promise<void> {
     if (this.ticking) {
       this.puladas += 1;

@@ -1,17 +1,3 @@
-/**
- * DIANA guardian-api — `alertId` (chave estável do alerta).
- *
- * O alerta é identificado por (`conversationId`, `processedAt`). Para caber
- * numa rota `GET /alerts/{id}`, codificamos os dois num id reversível
- * (§6.3 da análise):
- *
- *   alertId = base64url("<conversationId>|<processedAt>")
- *
- * A codificação é reversível e sem colisão (o separador `|` não aparece nos
- * componentes). `decodeAlertId` valida a estrutura e devolve `null` para ids
- * malformados (a rota responde 400).
- */
-
 const SEPARATOR = "|";
 
 export interface AlertRef {
