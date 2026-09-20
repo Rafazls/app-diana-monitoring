@@ -333,15 +333,37 @@ npm run check   # typecheck + testes
 npm test        # só os testes
 ```
 
-## Limites honestos
+## Limitações conhecidas
 
-- **A heurística é um baseline, não um classificador.** Casa expressões
-  conhecidas; erra em ironia, gíria e contexto. Por isso todo alerta carrega os
-  sinais que o justificaram: a decisão final é de um humano.
-- **Não há autenticação.** A chave opcional (`x-api-key`) é um freio de
-  demonstração: sem identidade, sem autorização por responsável.
-- **`STORE=memory` perde os alertas no reinício.** Use `STORE=file` para
-  persistir.
+**1. Uma instância monitora uma única criança/conversa por vez.**
+TELEGRAM_CHILD_ID e CHILD_NAME são valores únicos no .env — não há
+suporte a múltiplas crianças ou múltiplos responsáveis na mesma
+implantação (sem multi-tenant).
+
+**2. Ingestão restrita ao Telegram.**
+Depende do bot estar num grupo com o modo privacidade desligado; não enxerga DMs fora desse grupo nem outras
+plataformas (WhatsApp, Instagram, Discord etc.).
+
+**3. Motores de IA de verdade (server/oci) dependem de infraestrutura
+externa**
+Uma VM própria com o modelo rodando, ou uma conta OCI paga
+(o tier Free do OCI Generative AI responde 429). Sem isso, só resta a
+heurística.
+**4. Modelo rodando em ARM (VM A2) é lento:**
+35–60s por análise, contra
+segundos em x86 com AVX512. Isso limita o quão "near-real-time" a
+detecção pode ser nesse cenário de hospedagem.
+
+**5. Persistência em Oracle Autonomous Database depende de wallet/mTLS**
+Gerenciados manualmente fora do versionamento — não há rotação ou
+gestão automatizada desse segredo.
+
+## Próximos passos 
+* Suporte a múltiplas crianças/conversas por implantação (modelo
+multi-tenant), hoje limitado a uma por instância.
+* Novas fontes de ingestão além do Telegram.
+* Gestão de segredos (wallet do ADB, tokens) fora do .env local — um
+cofre de segredos em vez de arquivo em disco.
 
 ## O front-end
 
