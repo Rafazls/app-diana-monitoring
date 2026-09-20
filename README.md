@@ -43,11 +43,6 @@ contextual de conversas. Ela:
 7. gera um **alerta estruturado** quando há evidência suficiente para
    justificar a atenção do responsável.
 
-Este repositório (`app-diana-monitoring`) implementa os passos 1–7: ingestão,
-análise, consolidação e a API que serve o resultado. A tela onde o
-responsável consome esse alerta vive em
-[`app-diana-guardian-web`](https://github.com/Rafazls/app-diana-guardian-web).
-
 ### O que a DIANA não é?
 
 A DIANA não é:
