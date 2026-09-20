@@ -92,16 +92,22 @@ export class OracleAlertStore extends BaseAlertStore implements AlertStore {
 
     const conn = await this.requirePool().getConnection();
     try {
-      // Reanálise substitui, igual ao FileAlertStore: a conversa tem um alerta
-      // corrente, não um histórico de versões que a tela não sabe exibir.
-      await conn.execute(`DELETE FROM diana_alerts WHERE conversation_id = :conversationId`, {
-        conversationId: record.conversationId,
-      });
+      // MERGE em vez de DELETE+INSERT: preserva o histórico (cada processedAt
+      // é uma linha própria) e continua idempotente se a mesma análise for
+      // reenviada após uma falha transitória (retry vira UPDATE, não duplica).
       await conn.execute(
-        `INSERT INTO diana_alerts
-           (alert_id, conversation_id, child_name, processed_at, result)
-         VALUES (:alertId, :conversationId, :childName,
-                 TO_TIMESTAMP(:processedAt, 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"'), :result)`,
+        `MERGE INTO diana_alerts d
+           USING (SELECT :alertId AS alert_id FROM dual) s
+              ON (d.alert_id = s.alert_id)
+         WHEN MATCHED THEN UPDATE SET
+              d.conversation_id = :conversationId,
+              d.child_name      = :childName,
+              d.processed_at    = TO_TIMESTAMP(:processedAt, 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"'),
+              d.result          = :result
+         WHEN NOT MATCHED THEN INSERT
+              (alert_id, conversation_id, child_name, processed_at, result)
+              VALUES (:alertId, :conversationId, :childName,
+                      TO_TIMESTAMP(:processedAt, 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"'), :result)`,
         {
           alertId: alertId(record.conversationId, record.processedAt),
           conversationId: record.conversationId,
@@ -151,6 +157,22 @@ export class OracleAlertStore extends BaseAlertStore implements AlertStore {
       );
       const row = r.rows?.[0];
       return row ? this.parseValidated(row.RESULT, alertId(conversationId, processedAt)) : null;
+    } finally {
+      await conn.close();
+    }
+  }
+
+  async latestAlertAt(conversationId: string): Promise<string | null> {
+    const conn = await this.requirePool().getConnection();
+    try {
+      const r = await conn.execute<{ PROCESSED_AT: string }>(
+        `SELECT TO_CHAR(MAX(processed_at), 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"') AS processed_at
+           FROM diana_alerts
+          WHERE conversation_id = :conversationId`,
+        { conversationId },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT },
+      );
+      return r.rows?.[0]?.PROCESSED_AT ?? null;
     } finally {
       await conn.close();
     }

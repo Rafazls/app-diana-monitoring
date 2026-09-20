@@ -17,6 +17,7 @@ async function buildApp(env: NodeJS.ProcessEnv = {}) {
     batches: new MemoryBatchStore(),
     intervalMs: 60_000,
     contextBatches: 3,
+    cooldownMs: 0,
   });
 
   // Alimenta o scheduler como a fonte faria e fecha o batch na mão.

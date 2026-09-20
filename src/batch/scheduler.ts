@@ -16,6 +16,7 @@ export interface SchedulerStats {
   batches: number;
   analyzed: number;
   alerted: number;
+  suppressed: number;
   discarded: number;
   messages: number;
   messagesByDay: Record<string, number>;
@@ -27,6 +28,8 @@ export interface SchedulerOptions {
   alerts: AlertStore;
   intervalMs: number;
   contextBatches: number;
+  /** Tempo mínimo entre dois alertas da mesma conversa. */
+  cooldownMs: number;
 }
 
 function dayKey(date: Date): string {
@@ -45,6 +48,7 @@ export class BatchScheduler {
     batches: 0,
     analyzed: 0,
     alerted: 0,
+    suppressed: 0,
     discarded: 0,
     messages: 0,
     messagesByDay: {},
@@ -174,6 +178,20 @@ export class BatchScheduler {
           `(score ${resultado.assessment.score}, ${janela.length} batch(es) de contexto).`,
       );
       return;
+    }
+
+    const lastAlertedAt = await this.options.alerts.latestAlertAt(conversationId);
+    if (lastAlertedAt) {
+      const elapsed = Date.now() - new Date(lastAlertedAt).getTime();
+      if (elapsed < this.options.cooldownMs) {
+        this.stats.suppressed += 1;
+        logger.info(
+          `Alerta de ${conversationId} suprimido por cooldown ` +
+            `(${Math.round(elapsed / 1000)}s desde o último, mínimo ${Math.round(this.options.cooldownMs / 1000)}s). ` +
+            `Batch já persistido para contexto futuro.`,
+        );
+        return;
+      }
     }
 
     await this.options.alerts.save(resultado, batch.childName);

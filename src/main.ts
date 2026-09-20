@@ -36,6 +36,7 @@ async function main(): Promise<void> {
     alerts,
     intervalMs: config.batchIntervalMs,
     contextBatches: config.contextBatches,
+    cooldownMs: config.alertCooldownMs,
   });
 
   const app = createServer(config, {
