@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MockRiskAnalyzer } from "../src/analyzer/mockAnalyzer.js";
 import { MemoryBatchStore } from "../src/batch/MemoryBatchStore.js";
 import { BatchScheduler, type IncomingMessage } from "../src/batch/scheduler.js";
@@ -17,6 +17,7 @@ function build(contextBatches = 3) {
     alerts,
     intervalMs: 60_000, // o teste dispara o tick à mão
     contextBatches,
+    cooldownMs: 0, // desligado: testes existentes não devem ser afetados
   });
 }
 
@@ -62,6 +63,7 @@ describe("BatchScheduler", () => {
       alerts,
       intervalMs: 60_000,
       contextBatches: 3,
+      cooldownMs: 0,
     });
 
     scheduler.accept(msg("primeira"));
@@ -169,5 +171,46 @@ describe("BatchScheduler", () => {
     await scheduler.stop();
 
     expect(await batches.recent("conv-1", 10)).toHaveLength(1);
+  });
+
+  it("aplica cooldown entre alertas da mesma conversa: suprime dentro da janela e libera depois", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-14T12:00:00.000Z"));
+
+      const cooldownBatches = new MemoryBatchStore();
+      const cooldownAlerts = new MemoryAlertStore();
+      const cooldownScheduler = new BatchScheduler({
+        analyzer: new MockRiskAnalyzer(),
+        batches: cooldownBatches,
+        alerts: cooldownAlerts,
+        intervalMs: 60_000,
+        contextBatches: 3,
+        cooldownMs: 2 * 60 * 60 * 1000, // 2h
+      });
+
+      cooldownScheduler.accept(msg("nosso segredo, manda uma foto sua", "other", "c1"));
+      await cooldownScheduler.tick();
+      expect(cooldownScheduler.getStats().alerted).toBe(1);
+      expect(await cooldownAlerts.list()).toHaveLength(1);
+
+      // 30 min depois: ainda dentro do cooldown de 2h — não deve gerar um segundo alerta.
+      vi.setSystemTime(new Date("2026-09-14T12:30:00.000Z"));
+      cooldownScheduler.accept(msg("nosso segredo, manda uma foto sua", "other", "c2"));
+      await cooldownScheduler.tick();
+      expect(cooldownScheduler.getStats().alerted).toBe(1);
+      expect(cooldownScheduler.getStats().suppressed).toBe(1);
+      expect(await cooldownAlerts.list()).toHaveLength(1);
+
+      // Mais de 2h depois do primeiro alerta: cooldown liberado, novo alerta
+      // soma ao histórico em vez de substituir o anterior.
+      vi.setSystemTime(new Date("2026-09-14T14:30:01.000Z"));
+      cooldownScheduler.accept(msg("nosso segredo, manda uma foto sua", "other", "c3"));
+      await cooldownScheduler.tick();
+      expect(cooldownScheduler.getStats().alerted).toBe(2);
+      expect(await cooldownAlerts.list()).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

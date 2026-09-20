@@ -10,6 +10,8 @@ export interface AlertStore {
   save(result: AnalysisResult, childName: string): Promise<AlertRecord>;
   list(): Promise<AlertRecord[]>;
   get(conversationId: string, processedAt: string): Promise<AlertRecord | null>;
+  /** ISO do alerta mais recente desta conversa, ou null se nunca alertou. */
+  latestAlertAt(conversationId: string): Promise<string | null>;
   /** Nome da criança de uma conversa — vive fora do payload de análise. */
   childName(conversationId: string): string | undefined;
   markRead(conversationId: string, processedAt: string): void;
@@ -32,13 +34,13 @@ function toRecord(result: AnalysisResult): AlertRecord {
 /** Estado comum: nomes e marcação de lido, que não pertencem ao AlertRecord. */
 
 export class MemoryAlertStore extends BaseAlertStore implements AlertStore {
+  // Chave composta (conversationId|processedAt): cada análise vira um
+  // registro de histórico próprio, em vez de substituir o anterior.
   private readonly records = new Map<string, AlertRecord>();
 
   async save(result: AnalysisResult, childName: string): Promise<AlertRecord> {
     const record = toRecord(result);
-    // Uma conversa pode ser reanalisada: a análise mais recente substitui a
-    // anterior, para o responsável não ver o mesmo caso duplicado na lista.
-    this.records.set(record.conversationId, record);
+    this.records.set(this.key(record.conversationId, record.processedAt), record);
     this.names.set(record.conversationId, childName);
     return record;
   }
@@ -48,8 +50,16 @@ export class MemoryAlertStore extends BaseAlertStore implements AlertStore {
   }
 
   async get(conversationId: string, processedAt: string): Promise<AlertRecord | null> {
-    const found = this.records.get(conversationId);
-    return found && found.processedAt === processedAt ? found : null;
+    return this.records.get(this.key(conversationId, processedAt)) ?? null;
+  }
+
+  async latestAlertAt(conversationId: string): Promise<string | null> {
+    let latest: string | null = null;
+    for (const record of this.records.values()) {
+      if (record.conversationId !== conversationId) continue;
+      if (!latest || record.processedAt > latest) latest = record.processedAt;
+    }
+    return latest;
   }
 }
 
@@ -87,8 +97,8 @@ export class FileAlertStore extends BaseAlertStore implements AlertStore {
     const record = toRecord(result);
     const dir = path.join(this.alertsDir, safeId(record.conversationId));
 
-    // Reanálise substitui: limpa as versões anteriores desta conversa.
-    await fs.rm(dir, { recursive: true, force: true });
+    // Cada processedAt vira um arquivo próprio: reanálise soma ao histórico
+    // da conversa em vez de substituir a versão anterior.
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(
       path.join(dir, `${safeId(record.processedAt)}.json`),
@@ -126,6 +136,20 @@ export class FileAlertStore extends BaseAlertStore implements AlertStore {
     return this.readValidated(
       path.join(this.alertsDir, safeId(conversationId), `${safeId(processedAt)}.json`),
     );
+  }
+
+  async latestAlertAt(conversationId: string): Promise<string | null> {
+    const dir = path.join(this.alertsDir, safeId(conversationId));
+    let files: string[];
+    try {
+      files = (await fs.readdir(dir)).filter((f) => f.endsWith(".json"));
+    } catch {
+      return null;
+    }
+    // Nome do arquivo é o processedAt sanitizado; ordenação lexicográfica de
+    // ISO 8601 já é ordenação cronológica.
+    const latest = files.map((f) => f.replace(/\.json$/, "")).sort().at(-1);
+    return latest ?? null;
   }
 
   /**

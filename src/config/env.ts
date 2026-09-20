@@ -20,6 +20,9 @@ const schema = z.object({
   BATCH_INTERVAL_MS: z.coerce.number().int().min(1000).default(10_000),
   /** Quantos batches formam a janela de contexto da análise. */
   CONTEXT_BATCHES: z.coerce.number().int().min(1).max(20).default(3),
+  /** Intervalo mínimo entre dois alertas da MESMA conversa (não é o intervalo
+   * global de varredura — isso é BATCH_INTERVAL_MS, acima). */
+  ALERT_COOLDOWN_MS: z.coerce.number().int().min(0).default(7_200_000),
 
   // --- análise ---
   ANALYZER: z.enum(["mock", "server", "oci"]).default("mock"),
@@ -63,6 +66,7 @@ export interface AppConfig {
   childName: string;
   batchIntervalMs: number;
   contextBatches: number;
+  alertCooldownMs: number;
   oracle: {
     user: string;
     password: string;
@@ -127,6 +131,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     childName: d.CHILD_NAME,
     batchIntervalMs: d.BATCH_INTERVAL_MS,
     contextBatches: d.CONTEXT_BATCHES,
+    alertCooldownMs: d.ALERT_COOLDOWN_MS,
     oracle: {
       user: d.ORACLE_USER,
       password: d.ORACLE_PASSWORD,
